@@ -20,7 +20,7 @@ A CLI (`self-wiki`) plus a Claude Code skill plus a set of Claude Code hooks. Th
 src/
   cli.js                       commander entry; subcommands wire to commands/
   commands/                    user-facing + hook-callable subcommands
-    init.js                    scaffold vault + install skill + propose hooks
+    init.js                    scaffold vault + install skill + propose hooks + propose permissions
     session.js                 open / close / switch (hook entrypoints)
     note.js                    append note to active session block
     nudge.js                   one-shot primer on first prompt of an active session with zero notes (UserPromptSubmit hook)
@@ -42,7 +42,8 @@ src/
     log-parser.js              parse Daily/*.md into structured sessions
   templates/
     skill/SKILL.md             installed to ~/.claude/skills/wiki/SKILL.md
-    hooks.json                 merged into ~/.claude/settings.json
+    hooks.json                 merged into ~/.claude/settings.json hooks
+    permissions.json           merged into ~/.claude/settings.json permissions.allow
     prompts/weekly-report.md   versioned synthesis prompt (iterable)
     vault/.self-wiki/config.json  seed vault config
 ```
@@ -54,6 +55,7 @@ src/
 - **Daily-file mutations** go through `src/core/logger.js`. The sentinel comment `<!-- session-N-open -->` marks the open block; close functions replace it with end/duration/status lines. Never bypass the sentinel.
 - **Parsing** goes through `src/utils/log-parser.js`. Extend `parseSessions` carefully — it returns the shape `topics.js` and `report.js` rely on.
 - **Adding a hook** means: edit `src/templates/hooks.json` AND document the diff in the README's hook table. `init` merges idempotently — running it twice doesn't duplicate hooks.
+- **Adding a new `self-wiki` subcommand the skill or model is expected to invoke** means: add the matching `Bash(self-wiki <verb> *)` rule to `src/templates/permissions.json`. Without it, Claude Code's auto-mode classifier may block the call when the wiki skill isn't loaded into context.
 
 ## What NOT to do
 

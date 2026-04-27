@@ -15,12 +15,13 @@ self-wiki init /path/to/your/vault
 
 Examples: `~/notes`, `~/Documents/work-vault`, `/data/obsidian/personal`. Re-running `init` later with a different path repoints to the new vault; the old one stays untouched.
 
-`init` does four things:
+`init` does five things:
 
 1. Scaffolds the vault layout (`Daily/`, `Reports/`, `Tickets/`, `Components/`, `.self-wiki/config.json`).
 2. Installs the `wiki` skill to `~/.claude/skills/wiki/SKILL.md`.
 3. Proposes a hooks diff for `~/.claude/settings.json` (review before applying).
-4. Records the vault path in `~/.config/self-wiki/config.json`.
+4. Proposes `permissions.allow` additions for `~/.claude/settings.json` so Claude Code can run `self-wiki note` / `status` / `session switch` without the auto-mode classifier blocking them when the `wiki` skill isn't loaded.
+5. Records the vault path in `~/.config/self-wiki/config.json`.
 
 ## What you get
 
@@ -48,7 +49,7 @@ Inside the vault directory you chose, `init` creates:
 | `Stop`            | `self-wiki session close --soft`     | Soft-close; reopens if a new prompt arrives soon.      |
 | `SessionEnd`      | `self-wiki session close --hard`     | Final close, folds notes into topic pages.             |
 | `UserPromptSubmit`| `self-wiki session switch --silent`  | Updates the session if the branch changed mid-session. |
-| `UserPromptSubmit`| `self-wiki nudge`                    | Once per session, after 10+ min with zero notes, prints a reminder so the model logs a note when an outcome lands. |
+| `UserPromptSubmit`| `self-wiki nudge`                    | Once per session, on the first prompt with zero notes, primes the model with the noting contract so it reaches for `self-wiki note` when an outcome lands. |
 
 Task detection priority: current branch (`LPD-12345-foo` → `LPD-12345`) → `gh pr view` title → bare repo name.
 
@@ -150,4 +151,4 @@ npm i -g self-wiki
 self-wiki init /path/to/your/vault
 ```
 
-The CLI itself updates as soon as you re-install. The skill file at `~/.claude/skills/wiki/SKILL.md` and the hook entries in `~/.claude/settings.json` are user-managed copies, so `init` refreshes them: it overwrites the skill (after asking) and replaces existing `self-wiki` hook entries in place — no duplication, no double-firing — leaving any third-party hooks untouched. The hook diff is shown before `settings.json` is mutated; review it before confirming. The vault itself is never clobbered on re-run.
+The CLI itself updates as soon as you re-install. The skill file at `~/.claude/skills/wiki/SKILL.md`, the hook entries, and the `permissions.allow` entries in `~/.claude/settings.json` are user-managed copies, so `init` refreshes them: it overwrites the skill (after asking), replaces existing `self-wiki` hook entries in place — no duplication, no double-firing — and adds any missing `Bash(self-wiki …)` allow rules without touching unrelated permissions. Both diffs (hooks + permissions) are shown before `settings.json` is mutated; review before confirming. Third-party hooks/permissions are left untouched. The vault itself is never clobbered on re-run.
