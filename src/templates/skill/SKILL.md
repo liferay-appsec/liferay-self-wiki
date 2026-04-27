@@ -1,6 +1,6 @@
 ---
 name: wiki
-description: Log progress of the current Claude session into the user's self-wiki vault (daily logs, topic pages, and weekly reports). Use whenever you reach a decision/outcome/blocker worth remembering. The session is opened and closed automatically by Claude Code hooks — you only write notes.
+description: Log progress of the current Claude session into the user's self-wiki vault. Drop a terse 1–2 line note via `self-wiki note "<text>"` whenever you (a) identify a root cause, (b) make a non-obvious decision and can name the rejected alternative, (c) hit a blocker, (d) complete a subtask/PR/ticket (mention the PR/commit), (e) the user makes a course correction worth remembering, or (f) a verification step lands. Skip activity ("editing X", "running tests", "reading Y"). Aim for 3–8 notes per work-hour. The session is opened and closed automatically by Claude Code hooks — never start, stop, or switch sessions yourself.
 user-invocable: true
 allowed-tools:
   - Bash(self-wiki status)
@@ -53,7 +53,7 @@ self-wiki status
 - `active: ...` → drop notes as decisions land.
 - `idle` → the SessionStart hook didn't fire (rare). Tell the user once and keep working; don't try to open a session yourself.
 - `soft-closed: ...` → the hook will reopen it on the next prompt; you don't need to do anything.
-- `active sessions: N` (multiple lines) → the user has parallel Claude Code sessions running. `self-wiki note "<text>"` will route to the right one if `$CLAUDE_SESSION_ID` is set in your environment (the normal case). If `note` ever errors with "multiple active sessions", pass `--claude-session-id "$CLAUDE_SESSION_ID"` explicitly.
+- `active sessions: N` (multiple lines) → the user has parallel Claude Code sessions running. `self-wiki note "<text>"` routes to the right one automatically: the SessionStart hook exports `$CLAUDE_SESSION_ID` into your bash env, and `note` reads it. If you ever see a "multiple active sessions" error, the env var wasn't set — pass `--claude-session-id "$CLAUDE_SESSION_ID"` explicitly as a fallback.
 
 ## Switching tasks mid-session
 

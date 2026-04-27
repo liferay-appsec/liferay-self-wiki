@@ -48,6 +48,7 @@ Inside the vault directory you chose, `init` creates:
 | `Stop`            | `self-wiki session close --soft`     | Soft-close; reopens if a new prompt arrives soon.      |
 | `SessionEnd`      | `self-wiki session close --hard`     | Final close, folds notes into topic pages.             |
 | `UserPromptSubmit`| `self-wiki session switch --silent`  | Updates the session if the branch changed mid-session. |
+| `UserPromptSubmit`| `self-wiki nudge`                    | Once per session, after 10+ min with zero notes, prints a reminder so the model logs a note when an outcome lands. |
 
 Task detection priority: current branch (`LPD-12345-foo` → `LPD-12345`) → `gh pr view` title → bare repo name.
 

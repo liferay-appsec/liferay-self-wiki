@@ -14,6 +14,8 @@ import {
 } from '../core/logger.js';
 import { todayISO, formatHHMM, diffMinutes } from '../utils/format.js';
 import { ensureVaultDirs } from '../utils/paths.js';
+import { readHookSessionId } from '../utils/hook-input.js';
+import { appendFile } from 'node:fs/promises';
 
 const REAPER_AGE_MS = 24 * 60 * 60 * 1000;
 
@@ -25,9 +27,9 @@ export async function sessionOpen(opts = {}) {
   await migrateLegacyState();
 
   const cwd = opts.cwd || process.cwd();
-  const claudeSessionId = resolveSessionId(opts);
+  const claudeSessionId = await resolveSessionId(opts);
   if (!claudeSessionId) {
-    process.stderr.write('error: --claude-session-id required (set $CLAUDE_SESSION_ID or pass the flag)\n');
+    process.stderr.write('error: claude session id required (pass --claude-session-id, set $CLAUDE_SESSION_ID, or pipe hook JSON on stdin)\n');
     process.exit(2);
   }
 
@@ -69,8 +71,20 @@ export async function sessionOpen(opts = {}) {
     closedAt: null,
   };
   await writeSession(claudeSessionId, state);
+  await exportSessionIdToHookEnv(claudeSessionId);
   printBanner(state, 'opened');
   return state;
+}
+
+async function exportSessionIdToHookEnv(claudeSessionId) {
+  const envFile = process.env.CLAUDE_ENV_FILE;
+  if (!envFile) return;
+  if (!/^[A-Za-z0-9._-]+$/.test(claudeSessionId)) return;
+  try {
+    await appendFile(envFile, `export CLAUDE_SESSION_ID=${claudeSessionId}\n`);
+  } catch (err) {
+    process.stderr.write(`warn: could not export CLAUDE_SESSION_ID to hook env: ${err.message}\n`);
+  }
 }
 
 export async function sessionClose(opts = {}) {
@@ -78,7 +92,7 @@ export async function sessionClose(opts = {}) {
   ensureVaultConfigured();
   await migrateLegacyState();
 
-  const claudeSessionId = resolveSessionId(opts);
+  const claudeSessionId = await resolveSessionId(opts);
   if (!claudeSessionId) {
     if (!opts.silent) process.stderr.write('no claude session id — nothing to close\n');
     return null;
@@ -128,7 +142,7 @@ export async function sessionSwitch(opts = {}) {
   await migrateLegacyState();
   const vaultCfg = await readVaultConfig();
 
-  const claudeSessionId = resolveSessionId(opts);
+  const claudeSessionId = await resolveSessionId(opts);
   if (!claudeSessionId) {
     if (!opts.silent) process.stderr.write('no claude session id — nothing to switch\n');
     return null;
@@ -165,10 +179,10 @@ export async function sessionSwitch(opts = {}) {
   return next;
 }
 
-function resolveSessionId(opts) {
+async function resolveSessionId(opts) {
   if (opts.claudeSessionId) return String(opts.claudeSessionId);
   if (process.env.CLAUDE_SESSION_ID) return process.env.CLAUDE_SESSION_ID;
-  return null;
+  return await readHookSessionId();
 }
 
 async function maybeSoftReopen(existing, vaultCfg, cwd) {

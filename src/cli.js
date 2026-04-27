@@ -8,6 +8,7 @@ import { reportCommand } from './commands/report.js';
 import { rebuildCommand } from './commands/rebuild.js';
 import { updateTopicsCommand } from './commands/update-topics.js';
 import { configCommand } from './commands/config.js';
+import { nudgeCommand } from './commands/nudge.js';
 
 const program = new Command();
 
@@ -92,6 +93,13 @@ program
   .option('--with-synthesis', 'invoke claude -p to synthesize a "Decisions to date" header')
   .option('--dry-run', 'print what would be written')
   .action(rebuildCommand);
+
+program
+  .command('nudge')
+  .description('Emit a one-shot reminder if the active session has elapsed past the threshold with zero notes (called by UserPromptSubmit hook).')
+  .option('--claude-session-id <id>', 'Claude session id (overrides $CLAUDE_SESSION_ID)')
+  .option('--after-min <n>', 'minutes elapsed before nudging (default 10)')
+  .action(nudgeCommand);
 
 program.addCommand(configCommand());
 
