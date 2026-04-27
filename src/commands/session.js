@@ -103,7 +103,7 @@ export async function sessionClose(opts = {}) {
     return null;
   }
 
-  const mode = opts.hard ? 'hard' : opts.soft ? 'soft' : 'hard';
+  const mode = opts.soft ? 'soft' : 'hard';
   if (mode === 'soft') {
     const next = { ...state, status: 'soft-closed', closedAt: new Date().toISOString() };
     await writeSession(claudeSessionId, next);

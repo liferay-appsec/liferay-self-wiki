@@ -91,14 +91,10 @@ function collectTicketsFromSession(session, cfg) {
   const found = new Set();
   if (session.ticketId) found.add(session.ticketId);
   for (const note of session.notes) {
-    let m;
-    re.lastIndex = 0;
-    while ((m = re.exec(note.text)) != null) found.add(m[0]);
+    for (const m of note.text.matchAll(re)) found.add(m[0]);
   }
   for (const sw of session.switches) {
-    let m;
-    re.lastIndex = 0;
-    while ((m = re.exec(sw.newTask)) != null) found.add(m[0]);
+    for (const m of sw.newTask.matchAll(re)) found.add(m[0]);
   }
   return found;
 }
@@ -141,7 +137,7 @@ async function appendDatedSection({ filePath, title, dateStr, session, cfg }) {
     }
     const sectionMarker = `## ${dateStr} — Session ${session.sessionNumber}`;
     if (raw.includes(sectionMarker)) {
-      const re = new RegExp(`(## ${dateStr} — Session ${session.sessionNumber}[\\s\\S]*?)(?=\\n## |$)`);
+      const re = new RegExp(`(?<=^|\\n)## ${dateStr} — Session ${session.sessionNumber}[\\s\\S]*?(?=\\n## |$)`);
       await writeFile(filePath, raw.replace(re, body.trimEnd() + '\n\n'), 'utf8');
       return;
     }
@@ -169,7 +165,7 @@ function renderSessionBody(session, dateStr, ticketFilter, cfg, keywordFilter = 
     lines.push(`- [${n.time}] ${n.text}`);
   }
   for (const sw of session.switches) {
-    if (ticketFilter && !sw.newTask.includes(ticketFilter)) continue;
+    if (ticketFilter && !ticketsIn(sw.newTask, ticketRe).has(ticketFilter)) continue;
     if (keywordFilter && !keywordFilter.some((k) => sw.newTask.toLowerCase().includes(k.toLowerCase()))) continue;
     lines.push(`- [${sw.time}] _switched to_ ${sw.newTask}`);
   }
@@ -186,9 +182,7 @@ function renderSessionBody(session, dateStr, ticketFilter, cfg, keywordFilter = 
 function ticketsIn(text, ticketRe) {
   const found = new Set();
   if (!ticketRe) return found;
-  ticketRe.lastIndex = 0;
-  let m;
-  while ((m = ticketRe.exec(text)) != null) found.add(m[0]);
+  for (const m of text.matchAll(ticketRe)) found.add(m[0]);
   return found;
 }
 

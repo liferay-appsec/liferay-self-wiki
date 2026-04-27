@@ -45,9 +45,7 @@ async function collectAllTicketIds(cfg) {
     for (const s of parsed.sessions) {
       if (s.ticketId) ids.add(s.ticketId);
       const haystack = s.notes.map((n) => n.text).join('\n') + '\n' + s.switches.map((x) => x.newTask).join('\n');
-      let m;
-      re.lastIndex = 0;
-      while ((m = re.exec(haystack)) != null) ids.add(m[0]);
+      for (const m of haystack.matchAll(re)) ids.add(m[0]);
     }
   }
   return [...ids].sort();
