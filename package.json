@@ -1,0 +1,22 @@
+{
+  "name": "self-wiki",
+  "version": "0.1.1",
+  "description": "Self-writing personal wiki for Liferay employees — Claude Code sessions produce daily logs, topic pages, and weekly reports automatically.",
+  "type": "module",
+  "bin": {
+    "self-wiki": "./src/cli.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "CLAUDE.md"
+  ],
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "commander": "^14.0.0",
+    "proper-lockfile": "^4.1.2"
+  }
+}
