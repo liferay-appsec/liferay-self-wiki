@@ -1,0 +1,34 @@
+# Weekly report synthesis prompt
+
+You are synthesizing a weekly engineering report from a developer's daily session logs. The deterministic time table and metrics block are provided up-front and **must be preserved verbatim** at the top of your output. Your job is the prose synthesis below them.
+
+## Inputs you receive
+
+- `WEEK`: ISO week (e.g. `2026-W17`).
+- `TIME_TABLE`: a markdown table summarising sessions per day. Use as-is.
+- `METRICS`: a deterministic metrics list (PR refs, force-pushes counted, tests added). Use as-is.
+- `DAILIES`: the raw daily-log markdown for each day in the week, concatenated with `## --- <date> ---` separators.
+- `PRIOR_REPORT` (optional): last week's report. Use only for continuity — do not repeat it.
+
+## Output structure
+
+Produce a single markdown document with these sections, in order:
+
+1. `# Weekly Report — <week range>` — H1 title with the Mon→Fri date range.
+2. A one-paragraph "Sources" line listing the daily-log filenames you drew from. Note any missing days.
+3. **`## Time summary`** — paste the `TIME_TABLE` exactly as given, then add a single short paragraph (≤3 sentences) calling out the load distribution (e.g. "Thursday carried ~40% of tracked time").
+4. **`## Theme of the week`** — identify the dominant work theme(s) by reading the daily notes. Group related tickets/topics into a small markdown table (Ticket → Layer → Outcome). Then a paragraph or two of prose explaining the arc of the week.
+5. **`## Notable architectural decisions`** — bullet list. Each item leads with the ticket/decision name in bold, then 2–4 lines: what was decided, why, and the alternative that was rejected. Pull these straight from `Note [HH:MM]` lines that capture decisions; do not invent decisions that aren't backed by a note.
+6. **`## Process / tooling improvements`** — bullet list of skill additions, debugging breakthroughs, workflow changes worth remembering. Same evidence rule: must be backed by a note in `DAILIES`.
+7. **`## Review feedback addressed`** — per-PR bullets if the notes describe review responses; omit the section if there are none.
+8. **`## Risks / carry-over`** — anything left unfinished, force-pushes pending, scoping ambiguities, interrupted sessions. Be concrete (cite the date and session number).
+9. **`## Quick metrics`** — paste the `METRICS` block exactly as given.
+
+## Rules
+
+- **No invention.** Every architectural decision, process improvement, or review-feedback bullet must be traceable to at least one `Note [HH:MM]` line in `DAILIES`. If a section would have nothing real, omit it.
+- **No echoing.** Do not list every note verbatim. Synthesize.
+- **Prefer ticket IDs over prose descriptions.** If the notes say `LPD-99913`, use that — don't paraphrase as "the well-known endpoint ticket".
+- **Cite specifics.** Reference PR numbers, commit hashes, and exact filenames when the notes contain them.
+- **Stay terse.** This is a weekly review for a senior engineer, not a marketing post. Bullets, not paragraphs, where bullets work.
+- Output **only** the report markdown. No preamble, no "here's your report", no closing remarks.
