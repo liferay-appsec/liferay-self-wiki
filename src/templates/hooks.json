@@ -1,0 +1,32 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "self-wiki session open --cwd \"$CLAUDE_PROJECT_DIR\" --claude-session-id \"$CLAUDE_SESSION_ID\" 2>&1 || true" }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "self-wiki session close --soft --silent --claude-session-id \"$CLAUDE_SESSION_ID\" 2>&1 || true" }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          { "type": "command", "command": "self-wiki session close --hard --silent --claude-session-id \"$CLAUDE_SESSION_ID\" 2>&1 || true" }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "self-wiki session switch --silent --claude-session-id \"$CLAUDE_SESSION_ID\" 2>&1 || true" }
+        ]
+      }
+    ]
+  }
+}

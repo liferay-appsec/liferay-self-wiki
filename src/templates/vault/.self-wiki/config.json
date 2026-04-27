@@ -1,0 +1,6 @@
+{
+  "ticketRegex": "\\b(LPD|LPP|LPS|LRELEASE)-\\d+\\b",
+  "branchTicketRegex": "(?:^|[/_-])((?:LPD|LPP|LPS|LRELEASE)-\\d+)(?:[/_-]|$)",
+  "components": [],
+  "softCloseMinutes": 5
+}
