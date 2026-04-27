@@ -34,6 +34,7 @@ allowed-tools:
 - A subtask/PR/ticket was completed (mention the PR number / commit hash if you have it).
 - The user made a course correction worth remembering ("scope cut: skipping i18n", "switching from X to Y").
 - A test or verification step landed (e.g. "playwright spec passes after seeding admin gate").
+- A completion milestone is reached — PR opened/updated, tests green, force-push, formatter clean, branch shipped. One summary note that names the artifact (PR number / commit / test count).
 
 Do **not** note:
 

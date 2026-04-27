@@ -16,6 +16,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const TEMPLATES = resolve(__dirname, '..', 'templates');
 const SKILL_SRC = join(TEMPLATES, 'skill', 'SKILL.md');
 const HOOKS_SRC = join(TEMPLATES, 'hooks.json');
+const PERMISSIONS_SRC = join(TEMPLATES, 'permissions.json');
 const VAULT_CFG_SRC = join(TEMPLATES, 'vault', '.self-wiki', 'config.json');
 
 const SKILL_DEST = join(homedir(), '.claude', 'skills', 'wiki', 'SKILL.md');
@@ -61,6 +62,10 @@ export async function initCommand(vaultArg, opts = {}) {
 
   if (opts.hooks !== false) {
     await proposeHooks(opts.yes);
+  }
+
+  if (opts.permissions !== false) {
+    await proposePermissions(opts.yes);
   }
 
   process.stdout.write('\n' + chalk.bold('done.') + '\n\n');
@@ -135,6 +140,53 @@ function mergeHooks(current, desired) {
     next.hooks[event] = merged;
   }
   return next;
+}
+
+async function proposePermissions(skipConfirm) {
+  const desired = JSON.parse(await readFile(PERMISSIONS_SRC, 'utf8'));
+  const desiredAllow = desired?.permissions?.allow ?? [];
+  if (desiredAllow.length === 0) return;
+
+  await mkdir(dirname(SETTINGS_DEST), { recursive: true });
+
+  let current = {};
+  try {
+    current = JSON.parse(await readFile(SETTINGS_DEST, 'utf8'));
+  } catch (err) {
+    if (err.code !== 'ENOENT') {
+      process.stderr.write(`  ${chalk.red('✗')} could not read ${rel(SETTINGS_DEST)}: ${err.message}\n`);
+      return;
+    }
+  }
+
+  const currentAllow = current?.permissions?.allow ?? [];
+  const additions = desiredAllow.filter((entry) => !currentAllow.includes(entry));
+
+  if (additions.length === 0) {
+    process.stdout.write(`  ${chalk.green('✓')} self-wiki permissions already present in ${rel(SETTINGS_DEST)}\n`);
+    return;
+  }
+
+  process.stdout.write(`  ${chalk.bold('proposed permissions.allow additions')} in ${rel(SETTINGS_DEST)}:\n`);
+  for (const entry of additions) {
+    process.stdout.write(`    ${chalk.green('+')} ${chalk.dim(entry)}\n`);
+  }
+
+  const ok = skipConfirm || await confirm('  apply?', true);
+  if (!ok) {
+    process.stdout.write(`  ${chalk.yellow('·')} permissions not applied. Without these, Claude Code's auto-mode classifier may block self-wiki note calls.\n`);
+    return;
+  }
+
+  const next = {
+    ...current,
+    permissions: {
+      ...(current.permissions ?? {}),
+      allow: [...currentAllow, ...additions],
+    },
+  };
+  await writeFile(SETTINGS_DEST, JSON.stringify(next, null, 2) + '\n', 'utf8');
+  process.stdout.write(`  ${chalk.green('✓')} permissions written to ${rel(SETTINGS_DEST)}\n`);
 }
 
 function isSelfWikiBlock(block) {

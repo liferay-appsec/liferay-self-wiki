@@ -7,8 +7,6 @@ import { applyUserConfig, ensureVaultConfigured } from '../core/config.js';
 import { readHookSessionId } from '../utils/hook-input.js';
 import { parseDailyFile } from '../utils/log-parser.js';
 
-const DEFAULT_NUDGE_AFTER_MIN = 10;
-
 export async function nudgeCommand(opts = {}) {
   await applyUserConfig();
   try {
@@ -28,10 +26,6 @@ export async function nudgeCommand(opts = {}) {
   if (!slot || slot.status !== 'open') return;
   if (slot.nudgedAt) return;
 
-  const threshold = Number(opts.afterMin) || DEFAULT_NUDGE_AFTER_MIN;
-  const elapsedMin = (Date.now() - new Date(slot.startedAt).getTime()) / 60000;
-  if (!Number.isFinite(elapsedMin) || elapsedMin < threshold) return;
-
   const { sessions } = await parseDailyFile(slot.dateStr);
   const today = sessions.find((s) => s.sessionNumber === slot.sessionNumber);
   if (!today) return;
@@ -41,8 +35,12 @@ export async function nudgeCommand(opts = {}) {
 
   const label = slot.ticketId ? `[${slot.ticketId}] ${slot.task}` : slot.task;
   process.stdout.write(
-    `[self-wiki] Session ${slot.sessionNumber} (${label}) is ${Math.round(
-      elapsedMin
-    )} min in with zero notes logged. If you've reached a decision, root cause, blocker, or completion since starting, drop a 1–2 line note now: self-wiki note "<text>". If the work so far has been pure exploration with no outcome yet, ignore this.\n`
+    `[self-wiki] Active session ${slot.sessionNumber} — ${label}. ` +
+    `Drop a \`self-wiki note "<text>"\` whenever a root cause is identified, ` +
+    `a non-obvious decision is made (name the rejected alternative), a blocker is hit, ` +
+    `a subtask/PR/commit lands (mention the PR number / commit), or scope changes. ` +
+    `1–2 lines, terse — like a git commit subject. ` +
+    `Skip activity ("editing X", "running tests"). ` +
+    `If still in pure exploration with no outcome yet, ignore this.\n`
   );
 }

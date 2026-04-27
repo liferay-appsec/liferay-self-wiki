@@ -60,22 +60,36 @@ async function seed(slot) {
     repo: 'r',
     prNumber: null,
     claudeSessionId: SESSION_ID,
-    startedAt: new Date(Date.now() - 15 * 60_000).toISOString(),
+    startedAt: new Date(Date.now() - 60_000).toISOString(),
     closedAt: null,
     ...slot,
   });
 }
 
-test('nudge prints reminder and stamps nudgedAt when elapsed > threshold and no notes', async () => {
+test('nudge primes the session on first prompt with zero notes and stamps nudgedAt', async () => {
   await seed({});
   const out = await captureStdout(() => nudge.nudgeCommand({ claudeSessionId: SESSION_ID }));
-  assert.match(out, /\[self-wiki\]/);
-  assert.match(out, /zero notes/);
+  assert.match(out, /\[self-wiki\] Active session 1/);
+  assert.match(out, /self-wiki note/);
   const after = await state.readSession(SESSION_ID);
   assert.ok(after.nudgedAt, 'nudgedAt should be set');
 });
 
-test('nudge is silent when session has notes', async () => {
+test('nudge includes ticket label when ticketId is set', async () => {
+  await seed({ ticketId: 'LPD-99913', task: 'auth-config' });
+  const out = await captureStdout(() => nudge.nudgeCommand({ claudeSessionId: SESSION_ID }));
+  assert.match(out, /\[LPD-99913\] auth-config/);
+});
+
+test('nudge fires immediately on a fresh session — no elapsed-time threshold', async () => {
+  await seed({ startedAt: new Date().toISOString() });
+  const out = await captureStdout(() => nudge.nudgeCommand({ claudeSessionId: SESSION_ID }));
+  assert.match(out, /\[self-wiki\]/);
+  const after = await state.readSession(SESSION_ID);
+  assert.ok(after.nudgedAt);
+});
+
+test('nudge is silent when session already has notes', async () => {
   await seed({});
   writeFileSync(
     dailyPath(),
@@ -86,12 +100,6 @@ test('nudge is silent when session has notes', async () => {
   assert.equal(out, '');
   const after = await state.readSession(SESSION_ID);
   assert.equal(after.nudgedAt, undefined);
-});
-
-test('nudge is silent when elapsed is below threshold', async () => {
-  await seed({ startedAt: new Date(Date.now() - 2 * 60_000).toISOString() });
-  const out = await captureStdout(() => nudge.nudgeCommand({ claudeSessionId: SESSION_ID }));
-  assert.equal(out, '');
 });
 
 test('nudge is silent on a soft-closed session', async () => {
@@ -109,12 +117,4 @@ test('nudge fires only once per session (nudgedAt gates re-fires)', async () => 
 test('nudge with no resolvable session id is a silent no-op', async () => {
   const out = await captureStdout(() => nudge.nudgeCommand({}));
   assert.equal(out, '');
-});
-
-test('nudge respects --after-min override', async () => {
-  await seed({ startedAt: new Date(Date.now() - 2 * 60_000).toISOString() });
-  const out = await captureStdout(() =>
-    nudge.nudgeCommand({ claudeSessionId: SESSION_ID, afterMin: '1' })
-  );
-  assert.match(out, /\[self-wiki\]/);
 });

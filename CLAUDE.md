@@ -23,7 +23,7 @@ src/
     init.js                    scaffold vault + install skill + propose hooks
     session.js                 open / close / switch (hook entrypoints)
     note.js                    append note to active session block
-    nudge.js                   one-shot reminder when an active session has zero notes (UserPromptSubmit hook)
+    nudge.js                   one-shot primer on first prompt of an active session with zero notes (UserPromptSubmit hook)
     status.js                  read state for the skill
     report.js                  weekly synthesis via claude -p
     update-topics.js           fold last session into topic pages (called by SessionEnd)
@@ -50,7 +50,7 @@ src/
 ## Patterns to follow when adding code
 
 - **A new subcommand** lives in `src/commands/<name>.js`, exports an async function, is wired in `src/cli.js`. Top of every command: `await applyUserConfig(); ensureVaultConfigured();` (omit the second when the command should also work pre-init, like `config vault`).
-- **Reading state** is `await readState()`. State has `{ status, dateStr, sessionNumber, task, ticketId, branch, cwd, repo, prNumber, claudeSessionId, startedAt, closedAt, nudgedAt? }`. There's no pid liveness — sessions are framed entirely by hooks. `nudgedAt` is set once by `self-wiki nudge` and exists only to gate one-shot reminders.
+- **Reading state** is `await readState()`. State has `{ status, dateStr, sessionNumber, task, ticketId, branch, cwd, repo, prNumber, claudeSessionId, startedAt, closedAt, nudgedAt? }`. There's no pid liveness — sessions are framed entirely by hooks. `nudgedAt` is set once by `self-wiki nudge` (on the first UserPromptSubmit of a session with zero notes) and exists only to gate one-shot reminders.
 - **Daily-file mutations** go through `src/core/logger.js`. The sentinel comment `<!-- session-N-open -->` marks the open block; close functions replace it with end/duration/status lines. Never bypass the sentinel.
 - **Parsing** goes through `src/utils/log-parser.js`. Extend `parseSessions` carefully — it returns the shape `topics.js` and `report.js` rely on.
 - **Adding a hook** means: edit `src/templates/hooks.json` AND document the diff in the README's hook table. `init` merges idempotently — running it twice doesn't duplicate hooks.

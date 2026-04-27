@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(self-wiki note *)",
+      "Bash(self-wiki note --claude-session-id *)",
+      "Bash(self-wiki status)",
+      "Bash(self-wiki status *)",
+      "Bash(self-wiki session switch)",
+      "Bash(self-wiki session switch *)"
+    ]
+  }
+}
