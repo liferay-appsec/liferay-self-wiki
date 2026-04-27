@@ -4,14 +4,16 @@ A self-writing personal wiki for Liferay engineers. Just run `claude` inside a r
 
 The model: Claude Code hooks frame sessions; a skill instructs Claude to drop terse decision/outcome notes during work; a CLI synthesizes weekly reports and rebuilds topic pages on demand.
 
-This builds on the proven pattern from the `pomo` time tracker, removing the manual `start`/`stop` step and adding topic-page accumulation + automated weekly reports.
-
 ## Install
+
+Pick any directory you want as your vault — an existing Obsidian vault, a new folder, anywhere on disk. Self-wiki creates the subfolders it needs and otherwise leaves the directory alone.
 
 ```sh
 npm i -g self-wiki
-self-wiki init ~/liferay-vault
+self-wiki init /path/to/your/vault
 ```
+
+Examples: `~/notes`, `~/Documents/work-vault`, `/data/obsidian/personal`. Re-running `init` later with a different path repoints to the new vault; the old one stays untouched.
 
 `init` does four things:
 
@@ -22,8 +24,10 @@ self-wiki init ~/liferay-vault
 
 ## What you get
 
+Inside the vault directory you chose, `init` creates:
+
 ```
-~/liferay-vault/
+<your-vault>/
   Daily/
     2026-04-27.md       ← session log, source of truth
   Reports/
@@ -122,11 +126,11 @@ Notes mentioning any keyword are then routed to `Components/auth-provider.md`.
 
 ## Configuration
 
-| Path                                  | Purpose                                              |
-| ------------------------------------- | ---------------------------------------------------- |
-| `~/.config/self-wiki/config.json`     | User-level: vault path, JIRA settings.               |
-| `~/.local/share/self-wiki/state.json` | Active session state (managed by hooks).             |
-| `<vault>/.self-wiki/config.json`      | Vault-level: ticket regex, components, soft-close.   |
+| Path                                       | Purpose                                                       |
+| ------------------------------------------ | ------------------------------------------------------------- |
+| `~/.config/self-wiki/config.json`          | User-level: vault path, JIRA settings.                        |
+| `~/.local/share/self-wiki/sessions/*.json` | One slot per active Claude session (managed by hooks).        |
+| `<your-vault>/.self-wiki/config.json`      | Vault-level: ticket regex, components, soft-close window.     |
 
 Customize the ticket regex if your project uses different prefixes.
 
@@ -136,6 +140,13 @@ Multiple Claude Code instances can run on the same machine simultaneously (e.g. 
 
 `self-wiki status` lists all active sessions when more than one is open. `self-wiki note "<text>"` resolves to the right session via `$CLAUDE_SESSION_ID` (set automatically inside Claude Code); pass `--claude-session-id <id>` if you ever need to disambiguate manually.
 
-## Why not just `pomo`?
+## Upgrading
 
-`pomo` requires you to start/stop sessions yourself in a separate terminal. Self-wiki does the framing autonomously via Claude Code hooks, plus accumulates topic pages and synthesizes weekly reports. The note-quality model is the same — terse, decision-focused, 3–8 per hour.
+When a new version lands, re-install and re-run `init`:
+
+```sh
+npm i -g self-wiki
+self-wiki init /path/to/your/vault
+```
+
+The CLI itself updates as soon as you re-install. The skill file at `~/.claude/skills/wiki/SKILL.md` and the hook entries in `~/.claude/settings.json` are user-managed copies, so `init` refreshes them: it overwrites the skill (after asking) and replaces existing `self-wiki` hook entries in place — no duplication, no double-firing — leaving any third-party hooks untouched. The hook diff is shown before `settings.json` is mutated; review it before confirming. The vault itself is never clobbered on re-run.
