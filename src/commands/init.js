@@ -112,18 +112,36 @@ async function proposeHooks(skipConfirm) {
 
 function mergeHooks(current, desired) {
   const next = { ...current, hooks: { ...(current.hooks ?? {}) } };
-  for (const [event, blocks] of Object.entries(desired.hooks)) {
+  for (const [event, desiredBlocks] of Object.entries(desired.hooks)) {
     const existing = next.hooks[event] ?? [];
-    const merged = [...existing];
-    for (const block of blocks) {
-      const alreadyPresent = existing.some((b) =>
-        JSON.stringify(b.hooks) === JSON.stringify(block.hooks),
-      );
-      if (!alreadyPresent) merged.push(block);
+    const merged = [];
+    const consumed = new Set();
+    for (const block of existing) {
+      if (isSelfWikiBlock(block)) {
+        // Replace an existing self-wiki entry with the matching desired one
+        // (upgrade path). Drop it if the new version has nothing for this event.
+        const idx = desiredBlocks.findIndex((_, i) => !consumed.has(i));
+        if (idx !== -1) {
+          merged.push(desiredBlocks[idx]);
+          consumed.add(idx);
+        }
+      } else {
+        merged.push(block);
+      }
+    }
+    for (let i = 0; i < desiredBlocks.length; i++) {
+      if (!consumed.has(i)) merged.push(desiredBlocks[i]);
     }
     next.hooks[event] = merged;
   }
   return next;
+}
+
+function isSelfWikiBlock(block) {
+  if (!block?.hooks) return false;
+  return block.hooks.some(
+    (h) => typeof h?.command === 'string' && /(?:^|\s)self-wiki\s/.test(h.command),
+  );
 }
 
 function describeHookDiff(currentHooks, mergedHooks) {
@@ -131,13 +149,26 @@ function describeHookDiff(currentHooks, mergedHooks) {
   for (const event of Object.keys(mergedHooks)) {
     const before = currentHooks[event] ?? [];
     const after = mergedHooks[event];
-    if (after.length > before.length) {
-      const added = after.length - before.length;
-      const cmd = after[after.length - 1]?.hooks?.[0]?.command ?? '<command>';
-      lines.push(`${chalk.green('+')} ${event}: +${added} hook → ${chalk.dim(truncate(cmd, 80))}`);
+    const beforeJson = before.map((b) => JSON.stringify(b));
+    const afterJson = after.map((b) => JSON.stringify(b));
+    for (let i = 0; i < after.length; i++) {
+      if (i >= before.length) {
+        const cmd = firstCommand(after[i]);
+        lines.push(`${chalk.green('+')} ${event}: add → ${chalk.dim(truncate(cmd, 80))}`);
+      } else if (beforeJson[i] !== afterJson[i]) {
+        const cmd = firstCommand(after[i]);
+        lines.push(`${chalk.yellow('~')} ${event}: update → ${chalk.dim(truncate(cmd, 80))}`);
+      }
+    }
+    if (before.length > after.length) {
+      lines.push(`${chalk.red('-')} ${event}: ${before.length - after.length} entry/entries removed`);
     }
   }
   return lines;
+}
+
+function firstCommand(block) {
+  return block?.hooks?.[0]?.command ?? '<command>';
 }
 
 async function confirm(prompt, defaultYes) {
