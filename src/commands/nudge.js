@@ -36,11 +36,13 @@ export async function nudgeCommand(opts = {}) {
   const label = slot.ticketId ? `[${slot.ticketId}] ${slot.task}` : slot.task;
   process.stdout.write(
     `[self-wiki] Active session ${slot.sessionNumber} — ${label}. ` +
-    `Drop a \`self-wiki note "<text>"\` whenever a root cause is identified, ` +
-    `a non-obvious decision is made (name the rejected alternative), a blocker is hit, ` +
-    `a subtask/PR/commit lands (mention the PR number / commit), or scope changes. ` +
-    `1–2 lines, terse — like a git commit subject. ` +
-    `Skip activity ("editing X", "running tests"). ` +
-    `If still in pure exploration with no outcome yet, ignore this.\n`
+    `Drop a \`self-wiki note "<text>"\` liberally — ` +
+    `whenever the session produces something worth recalling later: ` +
+    `a diagnosis, a decision, a blocker or surprise, a completion (PR/commit/tests-green — name the artifact), ` +
+    `a config or environment change, a preference the user persists or asks you to remember, ` +
+    `a lesson learned, a scope shift, or any concrete progress marker. ` +
+    `When in doubt, note it — gaps cost more than redundancy. ` +
+    `1–2 lines, terse, like a git commit subject. ` +
+    `Skip only narration ("editing X", "running tests") and pure restatement of what the user said.\n`
   );
 }
