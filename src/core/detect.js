@@ -1,6 +1,7 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { basename } from 'path';
+import { escapeRegex } from '../utils/regex.js';
 
 const exec = promisify(execFile);
 
@@ -71,7 +72,7 @@ async function tryJiraTitle(ticketId, jiraCfg) {
   if (!jiraCfg.baseUrl) return null;
   const token = jiraCfg.tokenEnvVar ? process.env[jiraCfg.tokenEnvVar] : null;
   if (!token) return null;
-  const url = `${jiraCfg.baseUrl.replace(/\/$/, '')}/rest/api/2/issue/${ticketId}?fields=summary`;
+  const url = `${jiraCfg.baseUrl.replace(/\/$/, '')}/rest/api/2/issue/${encodeURIComponent(ticketId)}?fields=summary`;
   const res = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
   if (!res.ok) return null;
   const json = await res.json();
@@ -79,5 +80,5 @@ async function tryJiraTitle(ticketId, jiraCfg) {
 }
 
 function stripTicketPrefix(title, ticketId) {
-  return title.replace(new RegExp(`^${ticketId}\\s*[—:\\-]\\s*`, 'i'), '').trim();
+  return title.replace(new RegExp(`^${escapeRegex(ticketId)}\\s*[—:\\-]\\s*`, 'i'), '').trim();
 }

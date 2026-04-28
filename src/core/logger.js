@@ -34,7 +34,7 @@ export async function closeSessionBlock({ sessionNumber, dateStr, status, durati
     const duration = durationMin != null ? `\n- Duration: ${durationMin} min` : '';
     const statusLine = status === 'completed' ? '\n- Completed: ✅' : '\n- Interrupted: ⚠️';
     const replacement = `${ended}${duration}${statusLine}`;
-    await writeFile(file, raw.replace(sentinel(sessionNumber), replacement), 'utf8');
+    await writeFile(file, raw.replace(sentinel(sessionNumber), () => replacement), 'utf8');
   });
 }
 
@@ -47,7 +47,7 @@ export async function appendNote({ sessionNumber, dateStr, message, at }) {
       throw new Error(`No open session ${sessionNumber} found in ${dateStr}`);
     }
     const line = `- Note [${formatHHMM(at ?? new Date())}]: ${message}\n${tag}`;
-    await writeFile(file, raw.replace(tag, line), 'utf8');
+    await writeFile(file, raw.replace(tag, () => line), 'utf8');
   });
 }
 
@@ -60,7 +60,7 @@ export async function appendSwitch({ sessionNumber, dateStr, newTask }) {
       throw new Error(`No open session ${sessionNumber} found in ${dateStr}`);
     }
     const line = `- Switched: ${formatHHMM()} → ${newTask}\n${tag}`;
-    await writeFile(file, raw.replace(tag, line), 'utf8');
+    await writeFile(file, raw.replace(tag, () => line), 'utf8');
   });
 }
 

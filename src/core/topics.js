@@ -6,6 +6,7 @@ import {
 } from '../utils/paths.js';
 import { readVaultConfig } from './config.js';
 import { parseDailyFile, listDailyDates } from '../utils/log-parser.js';
+import { escapeRegex } from '../utils/regex.js';
 import { withLock } from './lock.js';
 
 export async function updateTopicsForSession(state) {
@@ -137,8 +138,9 @@ async function appendDatedSection({ filePath, title, dateStr, session, cfg }) {
     }
     const sectionMarker = `## ${dateStr} — Session ${session.sessionNumber}`;
     if (raw.includes(sectionMarker)) {
-      const re = new RegExp(`(?<=^|\\n)## ${dateStr} — Session ${session.sessionNumber}[\\s\\S]*?(?=\\n## |$)`);
-      await writeFile(filePath, raw.replace(re, body.trimEnd() + '\n\n'), 'utf8');
+      const re = new RegExp(`(?<=^|\\n)## ${escapeRegex(dateStr)} — Session ${session.sessionNumber}[\\s\\S]*?(?=\\n## |$)`);
+      const replacement = body.trimEnd() + '\n\n';
+      await writeFile(filePath, raw.replace(re, () => replacement), 'utf8');
       return;
     }
     const trailingNewline = raw.endsWith('\n') ? '' : '\n';
