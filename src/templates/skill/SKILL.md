@@ -1,6 +1,6 @@
 ---
 name: wiki
-description: Log progress of the current Claude session into the user's self-wiki vault. Drop a terse 1–2 line note via `self-wiki note "<text>"` liberally — whenever the session produces something worth recalling later: a diagnosis, a decision, a blocker, a completion, a config or environment change, a preference the user persists, a lesson learned, a scope shift, or any concrete progress marker. When in doubt, note it — gaps cost more than redundancy. Skip only narration ("editing X", "running tests", "reading Y") and pure restatement of what the user just said. The session is opened and closed automatically by Claude Code hooks — never start, stop, or switch sessions yourself.
+description: Log progress of the current Claude session into the user's self-wiki vault. Drop a terse 1–2 line note via `self-wiki note "<text>"` liberally — whenever the session produces something worth recalling later: a diagnosis, a decision, a blocker, a completion, a config or environment change, a preference the user persists, a lesson learned, a scope shift, or any concrete progress marker. **A closing summary is a tell**: if you're about to write "Done", "X landed", "all tests pass", "PR opened", "force-push complete", drop the note *before* that line, naming the artifact (PR/commit/test count). When in doubt, note it — gaps cost more than redundancy. Skip only narration ("editing X", "running tests", "reading Y") and pure restatement of what the user just said. The session is opened and closed automatically by Claude Code hooks — never start, stop, or switch sessions yourself.
 user-invocable: true
 allowed-tools:
   - Bash(self-wiki status)
@@ -17,12 +17,13 @@ allowed-tools:
 
 ## The rules
 
-1. **Notes are 1–2 lines, terse, factual.** Write like a git commit subject. If a note needs more than two lines, it's two notes or it belongs in the weekly report, not a note.
-2. **Note liberally. When in doubt, note it.** Gaps in the daily log are expensive (you can't summarize what wasn't recorded); redundancy is cheap. Don't gatekeep notes behind "is this important enough" — if a future-you reading the daily log would want to know it happened, log it.
-3. **Skip only narration and restatement.** Don't note "reading X", "running Y", "editing Z" — the diff and the tool calls already capture activity. Don't echo back what the user just told you.
-4. **Never run `self-wiki session open/close`.** Hooks own session boundaries.
-5. **Don't echo the note back to the user.** They'll see it in the daily file.
-6. **Reference ticket IDs explicitly** (e.g. `LPD-12345`) when the note is about a specific ticket, even if the session is already tagged — topic pages route on note content.
+1. **A closing summary is a tell.** If you're about to write "Done.", "X landed", "all tests pass", "PR opened", "force-push complete", "fixup squashed", "build green" — that line is itself the signal. Drop the `self-wiki note` *before* the closing summary, naming the artifact (PR number, commit hash, test count). Never let the user have to invoke `/wiki` after a completion you already announced.
+2. **Notes are 1–2 lines, terse, factual.** Write like a git commit subject. If a note needs more than two lines, it's two notes or it belongs in the weekly report, not a note.
+3. **Note liberally. When in doubt, note it.** Gaps in the daily log are expensive (you can't summarize what wasn't recorded); redundancy is cheap. Don't gatekeep notes behind "is this important enough" — if a future-you reading the daily log would want to know it happened, log it.
+4. **Skip only narration and restatement.** Don't note "reading X", "running Y", "editing Z" — the diff and the tool calls already capture activity. Don't echo back what the user just told you.
+5. **Never run `self-wiki session open/close`.** Hooks own session boundaries.
+6. **Don't echo the note back to the user.** They'll see it in the daily file.
+7. **Reference ticket IDs explicitly** (e.g. `LPD-12345`) when the note is about a specific ticket, even if the session is already tagged — topic pages route on note content.
 
 ## When to drop a note
 
