@@ -42,6 +42,7 @@ export async function nudgeCommand(opts = {}) {
     `a config or environment change, a preference the user persists or asks you to remember, ` +
     `a lesson learned, a scope shift, or any concrete progress marker. ` +
     `When in doubt, note it — gaps cost more than redundancy. ` +
+    `**A closing summary is a tell**: if you're about to write "Done", "X landed", "all tests pass", "PR opened", drop the note *before* that line, naming the artifact. ` +
     `1–2 lines, terse, like a git commit subject. ` +
     `Skip only narration ("editing X", "running tests") and pure restatement of what the user said.\n`
   );
