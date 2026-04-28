@@ -22,7 +22,7 @@ allowed-tools:
 3. **Skip only narration and restatement.** Don't note "reading X", "running Y", "editing Z" — the diff and the tool calls already capture activity. Don't echo back what the user just told you.
 4. **Never run `self-wiki session open/close`.** Hooks own session boundaries.
 5. **Don't echo the note back to the user.** They'll see it in the daily file.
-6. **Reference ticket IDs explicitly** (e.g. `LPD-99913`) when the note is about a specific ticket, even if the session is already tagged — topic pages route on note content.
+6. **Reference ticket IDs explicitly** (e.g. `LPD-12345`) when the note is about a specific ticket, even if the session is already tagged — topic pages route on note content.
 
 ## When to drop a note
 
@@ -61,23 +61,23 @@ self-wiki status
 
 ## Switching tasks mid-session
 
-If the user pivots clearly to a different ticket ("okay forget that, let's look at LPD-99915 instead"), offer to switch:
+If the user pivots clearly to a different ticket ("okay forget that, let's look at LPD-22222 instead"), offer to switch:
 
-> "This is a different ticket — want me to `self-wiki session switch -t LPD-99915`?"
+> "This is a different ticket — want me to `self-wiki session switch -t LPD-22222`?"
 
 Don't switch silently. The `UserPromptSubmit` hook re-detects from branch automatically; only ask to switch when the *intent* changes within the same branch.
 
 ## Note formatting — concrete examples
 
 Good:
-- `self-wiki note "LPD-99913 root cause: feature mounts under /o/* — need BaseFilter for root path"` (diagnosis)
+- `self-wiki note "LPD-12345 root cause: handler runs before auth filter — wrong ordering in the filter chain"` (diagnosis)
 - `self-wiki note "rebase: --theirs on messages.properties wholesale dropped intervening refactor; re-resolved manually"` (lesson)
-- `self-wiki note "PR #2789 opened against upstream; LPD-99955 moved to In Peer Review"` (completion)
-- `self-wiki note "blocked: gradle build needs BUILD_OPTS bumped, will pair with infra"` (blocker)
-- `self-wiki note "preference persisted: /pr skill should push to upstream remote, not origin/personal-fork; memory example-feedback-note.md updated"` (course correction)
+- `self-wiki note "PR #123 opened upstream; LPD-12346 moved to In Peer Review"` (completion)
+- `self-wiki note "blocked: build needs BUILD_OPTS bumped, will pair with infra"` (blocker)
+- `self-wiki note "preference persisted: /pr skill should push to upstream remote, not personal-fork; memory note updated"` (course correction)
 - `self-wiki note "API_USER/API_TOKEN wired into ~/.bashrc via 'op read …' — /pr can update tickets end-to-end"` (config)
 - `self-wiki note "all 4 e2e playwright tests green on clean db — earlier failure was residual state from manual admin clicks"` (verification + lesson)
-- `self-wiki note "scope cut: LPD-99917 third-party only; banner suppression deferred to LPD-99919"` (scope)
+- `self-wiki note "scope cut: LPD-12347 third-party only; banner suppression deferred to LPD-12348"` (scope)
 
 Bad:
 - `self-wiki note "looking into the parser issue"` (narration, no outcome yet)

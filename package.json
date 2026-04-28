@@ -1,8 +1,10 @@
 {
   "name": "self-wiki",
   "version": "0.1.1",
-  "description": "Self-writing personal wiki for Liferay employees — Claude Code sessions produce daily logs, topic pages, and weekly reports automatically.",
+  "description": "Self-writing personal wiki — Claude Code sessions produce daily logs, topic pages, and weekly reports automatically.",
   "type": "module",
+  "license": "MIT",
+  "author": "Christian Moura",
   "bin": {
     "self-wiki": "./src/cli.js"
   },

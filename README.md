@@ -1,15 +1,20 @@
 # self-wiki
 
-A self-writing personal wiki for Liferay engineers. Just run `claude` inside a repo — your work is captured into daily logs, topic pages, and weekly reports automatically. Zero per-session commands.
+A self-writing personal wiki for engineers. Just run `claude` inside a repo — your work is captured into daily logs, topic pages, and weekly reports automatically. Zero per-session commands.
 
 The model: Claude Code hooks frame sessions; a skill instructs Claude to drop terse decision/outcome notes during work; a CLI synthesizes weekly reports and rebuilds topic pages on demand.
 
 ## Install
 
+Self-wiki is distributed as a clone-and-link Node CLI (no npm registry publish). Requires Node 20+.
+
 Pick any directory you want as your vault — an existing Obsidian vault, a new folder, anywhere on disk. Self-wiki creates the subfolders it needs and otherwise leaves the directory alone.
 
 ```sh
-npm i -g self-wiki
+git clone <this-repo-url> self-wiki
+cd self-wiki
+npm install
+npm install -g .
 self-wiki init /path/to/your/vault
 ```
 
@@ -34,9 +39,9 @@ Inside the vault directory you chose, `init` creates:
   Reports/
     2026-W17.md         ← weekly synthesis (run `self-wiki report --week`)
   Tickets/
-    LPD-99913.md        ← grows across sessions
+    LPD-12345.md        ← grows across sessions
   Components/
-    auth-provider.md     ← cross-ticket recurring areas
+    auth-provider.md    ← cross-ticket recurring areas
   .self-wiki/
     config.json         ← ticket regex, components, soft-close window
 ```
@@ -95,7 +100,7 @@ You normally don't run any of these — hooks and the skill handle them.
 self-wiki status                          # is a session active?
 self-wiki status --json                   # machine-readable
 self-wiki note "<text>"                   # append a note (the skill does this)
-self-wiki session switch -t LPD-99915     # manual task switch
+self-wiki session switch -t LPD-22222     # manual task switch
 ```
 
 ## Weekly reports
@@ -113,7 +118,7 @@ The deterministic time table and metrics are computed in code; the prose is synt
 Topic pages auto-update at session close. To rebuild from scratch:
 
 ```sh
-self-wiki rebuild-topics --topic LPD-99913
+self-wiki rebuild-topics --topic LPD-12345
 self-wiki rebuild-topics --all-tickets
 self-wiki rebuild-topics --all-components
 ```
@@ -144,11 +149,14 @@ Multiple Claude Code instances can run on the same machine simultaneously (e.g. 
 
 ## Upgrading
 
-When a new version lands, re-install and re-run `init`:
+When a new version lands, pull, re-link, and re-run `init`:
 
 ```sh
-npm i -g self-wiki
+cd /path/to/your/self-wiki/checkout
+git pull
+npm install
+npm install -g .
 self-wiki init /path/to/your/vault
 ```
 
-The CLI itself updates as soon as you re-install. The skill file at `~/.claude/skills/wiki/SKILL.md`, the hook entries, and the `permissions.allow` entries in `~/.claude/settings.json` are user-managed copies, so `init` refreshes them: it overwrites the skill (after asking), replaces existing `self-wiki` hook entries in place — no duplication, no double-firing — and adds any missing `Bash(self-wiki …)` allow rules without touching unrelated permissions. Both diffs (hooks + permissions) are shown before `settings.json` is mutated; review before confirming. Third-party hooks/permissions are left untouched. The vault itself is never clobbered on re-run.
+The CLI itself updates as soon as you re-link. The skill file at `~/.claude/skills/wiki/SKILL.md`, the hook entries, and the `permissions.allow` entries in `~/.claude/settings.json` are user-managed copies, so `init` refreshes them: it overwrites the skill (after asking), replaces existing `self-wiki` hook entries in place — no duplication, no double-firing — and adds any missing `Bash(self-wiki …)` allow rules without touching unrelated permissions. Both diffs (hooks + permissions) are shown before `settings.json` is mutated; review before confirming. Third-party hooks/permissions are left untouched. The vault itself is never clobbered on re-run.
