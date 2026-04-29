@@ -107,6 +107,7 @@ program
   .description('Close any session blocks left with a dangling sentinel (markdown reaper).')
   .option('--date <YYYY-MM-DD>', 'restrict to a single day (default: today)')
   .option('--all', 'scan every Daily/<date>.md in the vault')
+  .option('--skip-topics', 'do not fold reaped sessions into Tickets/ and Components/ pages')
   .action(closeOrphansCommand);
 
 program.addCommand(configCommand());

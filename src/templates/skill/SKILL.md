@@ -58,7 +58,7 @@ self-wiki status
 - `active: ...` → drop notes as decisions land.
 - `idle` → the SessionStart hook didn't fire (rare). Tell the user once and keep working; don't try to open a session yourself.
 - `soft-closed: ...` → the hook will reopen it on the next prompt; you don't need to do anything.
-- `active sessions: N` (multiple lines) → the user has parallel Claude Code sessions running. `self-wiki note "<text>"` routes to the right one automatically: the SessionStart hook exports `$CLAUDE_SESSION_ID` into your bash env, and `note` reads it. If you ever see a "multiple active sessions" error, the env var wasn't set — pass `--claude-session-id "$CLAUDE_SESSION_ID"` explicitly as a fallback.
+- `active sessions: N` (multiple lines) → the user has parallel Claude Code sessions running. `self-wiki note "<text>"` Just Works: the CLI matches by `$CLAUDE_SESSION_ID` when the SessionStart hook has exported it, and falls back to the unique active session matching your current working directory when it hasn't. Only if you see a "multiple active sessions" error — which means *two* terminals share this exact cwd — pass `--claude-session-id "$CLAUDE_SESSION_ID"` explicitly.
 
 ## Switching tasks mid-session
 

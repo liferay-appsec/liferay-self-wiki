@@ -24,6 +24,22 @@ export async function nudgeCommand(opts = {}) {
 
   const slot = await readSession(id);
   if (!slot || slot.status !== 'open') return;
+
+  // Second-chance nudge: the soft-close path on Stop set this when it detected
+  // a closing-summary tell with no `self-wiki note` in the same turn. Surface
+  // it once, then clear so it doesn't repeat.
+  if (slot.pendingNudge?.kind === 'closing-summary') {
+    const snippet = (slot.pendingNudge.snippet ?? '').replace(/\s+/g, ' ').trim();
+    const tail = snippet.length > 160 ? snippet.slice(-160) : snippet;
+    process.stdout.write(
+      `[self-wiki] Heads up: your last turn looked like a wrap-up but no \`self-wiki note\` landed. ` +
+      (tail ? `Tail of that turn: "…${tail}". ` : '') +
+      `If that was a real completion (PR opened, tests green, fix landed), drop a \`self-wiki note "<text>"\` now naming the artifact (PR/commit/test count). Otherwise ignore this.\n`
+    );
+    await writeSession(id, { ...slot, pendingNudge: null });
+    return;
+  }
+
   if (slot.nudgedAt) return;
 
   const { sessions } = await parseDailyFile(slot.dateStr);
