@@ -11,13 +11,16 @@ import {
   openSessionBlockAtomic,
   closeSessionBlock,
   appendSwitch,
+  markActivity,
+  closeOrphanedSentinels,
 } from '../core/logger.js';
 import { todayISO, formatHHMM, diffMinutes } from '../utils/format.js';
 import { ensureVaultDirs } from '../utils/paths.js';
 import { readHookSessionId } from '../utils/hook-input.js';
+import { logCloseError } from '../core/error-log.js';
 import { appendFile } from 'node:fs/promises';
 
-const REAPER_AGE_MS = 24 * 60 * 60 * 1000;
+const REAPER_AGE_MS = 6 * 60 * 60 * 1000;
 
 export async function sessionOpen(opts = {}) {
   const userCfg = await applyUserConfig();
@@ -107,6 +110,21 @@ export async function sessionClose(opts = {}) {
   if (mode === 'soft') {
     const next = { ...state, status: 'soft-closed', closedAt: new Date().toISOString() };
     await writeSession(claudeSessionId, next);
+    try {
+      await markActivity({
+        sessionNumber: state.sessionNumber,
+        dateStr: state.dateStr,
+        at: new Date(),
+      });
+    } catch (err) {
+      await logCloseError({
+        kind: 'mark-activity',
+        sessionId: claudeSessionId,
+        sessionNumber: state.sessionNumber,
+        dateStr: state.dateStr,
+        error: err.message,
+      });
+    }
     if (!opts.silent) process.stdout.write(`session ${state.sessionNumber} soft-closed\n`);
     return next;
   }
@@ -114,13 +132,24 @@ export async function sessionClose(opts = {}) {
   const endedAt = new Date();
   const durationMin = diffMinutes(state.startedAt, endedAt);
   const status = opts.interrupted ? 'interrupted' : 'completed';
-  await closeSessionBlock({
-    sessionNumber: state.sessionNumber,
-    dateStr: state.dateStr,
-    status,
-    durationMin,
-    endedAt,
-  });
+  try {
+    await closeSessionBlock({
+      sessionNumber: state.sessionNumber,
+      dateStr: state.dateStr,
+      status,
+      durationMin,
+      endedAt,
+    });
+  } catch (err) {
+    await logCloseError({
+      kind: 'close-session',
+      sessionId: claudeSessionId,
+      sessionNumber: state.sessionNumber,
+      dateStr: state.dateStr,
+      error: err.message,
+    });
+    if (!opts.silent) process.stderr.write(`warn: close-session failed: ${err.message}\n`);
+  }
 
   if (!opts.skipTopics) {
     try {
@@ -182,7 +211,16 @@ export async function sessionSwitch(opts = {}) {
 async function resolveSessionId(opts) {
   if (opts.claudeSessionId) return String(opts.claudeSessionId);
   if (process.env.CLAUDE_SESSION_ID) return process.env.CLAUDE_SESSION_ID;
-  return await readHookSessionId();
+  const fromHook = await readHookSessionId();
+  if (fromHook) return fromHook;
+  return await resolveByCwd(opts.cwd || process.cwd());
+}
+
+async function resolveByCwd(cwd) {
+  const slots = await listActiveSessions();
+  const matching = slots.filter((s) => s.cwd === cwd && (s.status === 'open' || s.status === 'soft-closed'));
+  if (matching.length === 1) return matching[0].claudeSessionId;
+  return null;
 }
 
 async function maybeSoftReopen(existing, vaultCfg, cwd) {
@@ -208,6 +246,13 @@ async function closeSlotIfOpen(slot) {
       durationMin,
     });
   } catch (err) {
+    await logCloseError({
+      kind: 'close-slot',
+      sessionId: slot.claudeSessionId,
+      sessionNumber: slot.sessionNumber,
+      dateStr: slot.dateStr,
+      error: err.message,
+    });
     process.stderr.write(`warn: could not auto-close slot ${slot.claudeSessionId}: ${err.message}\n`);
   }
 }
@@ -215,12 +260,33 @@ async function closeSlotIfOpen(slot) {
 async function reapStaleSlots() {
   const slots = await listActiveSessions();
   const now = Date.now();
+  const reapedDates = new Set();
   for (const slot of slots) {
     const startedMs = new Date(slot.startedAt).getTime();
     if (Number.isNaN(startedMs)) continue;
     if (now - startedMs < REAPER_AGE_MS) continue;
     await closeSlotIfOpen(slot);
+    if (slot.dateStr) reapedDates.add(slot.dateStr);
     if (slot.claudeSessionId) await clearSession(slot.claudeSessionId);
+  }
+
+  // Close any orphaned markdown sentinels for the reaped days, ignoring still-active slots.
+  if (reapedDates.size > 0) {
+    const remaining = await listActiveSessions();
+    for (const dateStr of reapedDates) {
+      const ignore = remaining
+        .filter((s) => s.dateStr === dateStr)
+        .map((s) => s.sessionNumber);
+      try {
+        await closeOrphanedSentinels({ dateStr, ignoreSessionNumbers: ignore });
+      } catch (err) {
+        await logCloseError({
+          kind: 'reap-orphans',
+          dateStr,
+          error: err.message,
+        });
+      }
+    }
   }
 }
 
