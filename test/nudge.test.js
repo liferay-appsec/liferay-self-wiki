@@ -118,3 +118,37 @@ test('nudge with no resolvable session id is a silent no-op', async () => {
   const out = await captureStdout(() => nudge.nudgeCommand({}));
   assert.equal(out, '');
 });
+
+test('pendingNudge from Stop fires the second-chance reminder and clears the flag', async () => {
+  await seed({
+    pendingNudge: {
+      kind: 'closing-summary',
+      detectedAt: new Date().toISOString(),
+      snippet: 'I had finished the implementation. The four planned changes are in place and formatSource passes on all three modules.',
+    },
+  });
+  const out = await captureStdout(() => nudge.nudgeCommand({ claudeSessionId: SESSION_ID }));
+  assert.match(out, /Heads up:/);
+  assert.match(out, /no `self-wiki note` landed/);
+  assert.match(out, /four planned changes/);
+  const after = await state.readSession(SESSION_ID);
+  assert.equal(after.pendingNudge, null);
+});
+
+test('pendingNudge fires once even when the primary primer would also be due', async () => {
+  // Slot has both: zero notes (primer would fire) AND a pendingNudge.
+  await seed({
+    pendingNudge: {
+      kind: 'closing-summary',
+      detectedAt: new Date().toISOString(),
+      snippet: 'PR opened ready for review',
+    },
+  });
+  const out = await captureStdout(() => nudge.nudgeCommand({ claudeSessionId: SESSION_ID }));
+  assert.match(out, /Heads up:/);
+  assert.doesNotMatch(out, /Active session 1/); // primer didn't fire
+  // Second invocation: pendingNudge cleared, primer can now fire (still no notes).
+  const out2 = await captureStdout(() => nudge.nudgeCommand({ claudeSessionId: SESSION_ID }));
+  assert.match(out2, /Active session 1/);
+  assert.doesNotMatch(out2, /Heads up:/);
+});

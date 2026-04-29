@@ -16,8 +16,9 @@ import {
 } from '../core/logger.js';
 import { todayISO, formatHHMM, diffMinutes } from '../utils/format.js';
 import { ensureVaultDirs } from '../utils/paths.js';
-import { readHookSessionId } from '../utils/hook-input.js';
+import { readHookInput, readHookSessionId } from '../utils/hook-input.js';
 import { logCloseError } from '../core/error-log.js';
+import { inspectTranscript } from '../core/stop-detector.js';
 import { appendFile } from 'node:fs/promises';
 
 const REAPER_AGE_MS = 6 * 60 * 60 * 1000;
@@ -95,7 +96,10 @@ export async function sessionClose(opts = {}) {
   ensureVaultConfigured();
   await migrateLegacyState();
 
-  const claudeSessionId = await resolveSessionId(opts);
+  // Read hook stdin once; reuse for session id resolution and transcript inspection.
+  const hookPayload = opts.hookPayload ?? (await readHookInput());
+
+  const claudeSessionId = await resolveSessionId(opts, hookPayload);
   if (!claudeSessionId) {
     if (!opts.silent) process.stderr.write('no claude session id — nothing to close\n');
     return null;
@@ -108,7 +112,30 @@ export async function sessionClose(opts = {}) {
 
   const mode = opts.soft ? 'soft' : 'hard';
   if (mode === 'soft') {
-    const next = { ...state, status: 'soft-closed', closedAt: new Date().toISOString() };
+    let pendingNudge = state.pendingNudge ?? null;
+    try {
+      const inspection = await inspectTranscript(hookPayload?.transcript_path);
+      if (inspection.closingTellDetected && !inspection.noteAdded) {
+        pendingNudge = {
+          kind: 'closing-summary',
+          detectedAt: new Date().toISOString(),
+          snippet: inspection.lastTextSnippet,
+        };
+      }
+    } catch (err) {
+      await logCloseError({
+        kind: 'inspect-transcript',
+        sessionId: claudeSessionId,
+        error: err.message,
+      });
+    }
+
+    const next = {
+      ...state,
+      status: 'soft-closed',
+      closedAt: new Date().toISOString(),
+      pendingNudge,
+    };
     await writeSession(claudeSessionId, next);
     try {
       await markActivity({
@@ -208,9 +235,11 @@ export async function sessionSwitch(opts = {}) {
   return next;
 }
 
-async function resolveSessionId(opts) {
+async function resolveSessionId(opts, hookPayload) {
   if (opts.claudeSessionId) return String(opts.claudeSessionId);
   if (process.env.CLAUDE_SESSION_ID) return process.env.CLAUDE_SESSION_ID;
+  const fromPayload = hookPayload?.session_id;
+  if (typeof fromPayload === 'string' && fromPayload) return fromPayload;
   const fromHook = await readHookSessionId();
   if (fromHook) return fromHook;
   return await resolveByCwd(opts.cwd || process.cwd());
@@ -278,7 +307,20 @@ async function reapStaleSlots() {
         .filter((s) => s.dateStr === dateStr)
         .map((s) => s.sessionNumber);
       try {
-        await closeOrphanedSentinels({ dateStr, ignoreSessionNumbers: ignore });
+        const closed = await closeOrphanedSentinels({ dateStr, ignoreSessionNumbers: ignore });
+        for (const c of closed) {
+          try {
+            const { updateTopicsForSession } = await import('../core/topics.js');
+            await updateTopicsForSession({ dateStr, sessionNumber: c.sessionNumber });
+          } catch (err) {
+            await logCloseError({
+              kind: 'reap-topics',
+              dateStr,
+              sessionNumber: c.sessionNumber,
+              error: err.message,
+            });
+          }
+        }
       } catch (err) {
         await logCloseError({
           kind: 'reap-orphans',

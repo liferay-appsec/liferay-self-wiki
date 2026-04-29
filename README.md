@@ -149,7 +149,7 @@ Customize the ticket regex if your project uses different prefixes.
 
 Multiple Claude Code instances can run on the same machine simultaneously (e.g. one per repo). v0.1.1 keys session state by Claude's own session id (`$CLAUDE_SESSION_ID`), so each instance gets its own session block in the same daily file with no cross-contamination. Daily-file and topic-page writes are guarded by per-file locks (`proper-lockfile`), so concurrent `self-wiki note` calls are safe.
 
-`self-wiki status` lists all active sessions when more than one is open. `self-wiki note "<text>"` resolves to the right session via `$CLAUDE_SESSION_ID` (set automatically inside Claude Code); pass `--claude-session-id <id>` if you ever need to disambiguate manually.
+`self-wiki status` lists all active sessions when more than one is open. `self-wiki note "<text>"` resolves to the right session via `$CLAUDE_SESSION_ID` (set automatically inside Claude Code), and falls back to the unique active session matching the current working directory when the env var is unset. Pass `--claude-session-id <id>` only when two terminals share the same cwd.
 
 ## Upgrading
 
@@ -164,3 +164,5 @@ self-wiki init /path/to/your/vault
 ```
 
 The CLI itself updates as soon as you re-link. The skill file at `~/.claude/skills/wiki/SKILL.md`, the hook entries, and the `permissions.allow` entries in `~/.claude/settings.json` are user-managed copies, so `init` refreshes them: it overwrites the skill (after asking), replaces existing `self-wiki` hook entries in place — no duplication, no double-firing — and adds any missing `Bash(self-wiki …)` allow rules without touching unrelated permissions. Both diffs (hooks + permissions) are shown before `settings.json` is mutated; review before confirming. Third-party hooks/permissions are left untouched. The vault itself is never clobbered on re-run.
+
+Re-running `init` after upgrading is a no-op when nothing changed, but it picks up new `Bash(self-wiki …)` permission rules (e.g. `close-orphans`) and refreshes the skill primer when the closing-summary phrase list grows. Daily logs, topic pages, and weekly reports are never touched.

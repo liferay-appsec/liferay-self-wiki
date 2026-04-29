@@ -2,6 +2,7 @@ import { applyUserConfig, ensureVaultConfigured } from '../core/config.js';
 import { closeOrphanedSentinels } from '../core/logger.js';
 import { listActiveSessions, migrateLegacyState } from '../core/state.js';
 import { listDailyDates } from '../utils/log-parser.js';
+import { updateTopicsForSession } from '../core/topics.js';
 
 export async function closeOrphansCommand(opts = {}) {
   await applyUserConfig();
@@ -20,6 +21,16 @@ export async function closeOrphansCommand(opts = {}) {
     if (closed.length > 0) {
       process.stdout.write(`${dateStr}: closed ${closed.length} orphaned session${closed.length === 1 ? '' : 's'} (${closed.map((c) => `#${c.sessionNumber}@${c.endTime ?? '--:--'}`).join(', ')})\n`);
       total += closed.length;
+
+      if (!opts.skipTopics) {
+        for (const c of closed) {
+          try {
+            await updateTopicsForSession({ dateStr, sessionNumber: c.sessionNumber });
+          } catch (err) {
+            process.stderr.write(`warn: topic update failed for ${dateStr} session ${c.sessionNumber}: ${err.message}\n`);
+          }
+        }
+      }
     }
   }
   if (total === 0) {

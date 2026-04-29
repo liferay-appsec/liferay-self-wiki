@@ -291,3 +291,42 @@ test('rebuildComponentPage supports string-form component config', async () => {
   const content = readFileSync(result.filePath, 'utf8');
   assert.match(content, /touched the portal module/);
 });
+
+test('reaped sessions can be folded into ticket pages by re-using updateTopicsForSession', async () => {
+  // Simulate a session that was orphaned (still has sentinel) then reaped by close-orphans:
+  // close-orphans replaces the sentinel with closing meta; we then call updateTopicsForSession
+  // with just {dateStr, sessionNumber} — no slot/state object — and expect the ticket page to land.
+  const logger = await import('../src/core/logger.js');
+  const dateStr = '2026-04-28';
+  await logger.openSessionBlockAtomic({
+    task: 'GPC plumbing',
+    ticketId: 'LPD-86317',
+    dateStr,
+    startedAt: new Date(`${dateStr}T11:49:00`),
+  });
+  // Add a couple of notes (as the model would have during the session).
+  const noteFile = join(vault, 'Daily', `${dateStr}.md`);
+  let raw = readFileSync(noteFile, 'utf8');
+  raw = raw.replace(
+    '<!-- session-1-open -->',
+    [
+      '- Note [13:51]: LPD-86317 implemented: suppressThirdPartyCookies JS function, integration test, playwright test.',
+      '- Note [15:54]: LPD-86317 PR #2800 opened (draft) against liferay-appsec.',
+      '<!-- session-1-open -->',
+    ].join('\n'),
+  );
+  writeFileSync(noteFile, raw, 'utf8');
+
+  // Reaper closes the orphan.
+  const closed = await logger.closeOrphanedSentinels({ dateStr });
+  assert.equal(closed.length, 1);
+  assert.equal(closed[0].sessionNumber, 1);
+
+  // Topic update from reaped state shape works.
+  await topics.updateTopicsForSession({ dateStr, sessionNumber: 1 });
+  const ticketPath = paths.getTicketFilePath('LPD-86317');
+  assert.ok(existsSync(ticketPath), 'ticket page created');
+  const ticketContent = readFileSync(ticketPath, 'utf8');
+  assert.match(ticketContent, /## 2026-04-28 — Session 1/);
+  assert.match(ticketContent, /PR #2800 opened/);
+});
