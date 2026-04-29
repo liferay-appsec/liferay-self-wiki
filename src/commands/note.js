@@ -1,6 +1,7 @@
 import { readSession, listActiveSessions, migrateLegacyState } from '../core/state.js';
 import { applyUserConfig, ensureVaultConfigured } from '../core/config.js';
 import { appendNote } from '../core/logger.js';
+import { readHookSessionId } from '../utils/hook-input.js';
 
 export async function noteCommand(text, opts = {}) {
   await applyUserConfig();
@@ -19,26 +20,36 @@ export async function noteCommand(text, opts = {}) {
 }
 
 async function resolveActiveSession(opts) {
-  const explicitId = opts.claudeSessionId || process.env.CLAUDE_SESSION_ID || null;
+  const explicitId =
+    opts.claudeSessionId ||
+    process.env.CLAUDE_SESSION_ID ||
+    (await readHookSessionId()) ||
+    null;
   if (explicitId) {
     const slot = await readSession(explicitId);
-    if (slot && slot.status === 'open') return slot;
-    if (slot && slot.status === 'soft-closed') return slot;
+    if (slot && (slot.status === 'open' || slot.status === 'soft-closed')) return slot;
     process.stderr.write(`error: no active session for claude id ${explicitId}\n`);
     return null;
   }
 
-  const slots = (await listActiveSessions()).filter((s) => s.status === 'open' || s.status === 'soft-closed');
+  const slots = (await listActiveSessions()).filter(
+    (s) => s.status === 'open' || s.status === 'soft-closed',
+  );
   if (slots.length === 0) {
     process.stderr.write('error: no active session — note discarded.\n');
     return null;
   }
   if (slots.length === 1) return slots[0];
 
+  // Multiple slots: try to disambiguate by cwd.
+  const cwd = process.cwd();
+  const cwdMatches = slots.filter((s) => s.cwd === cwd);
+  if (cwdMatches.length === 1) return cwdMatches[0];
+
   process.stderr.write('error: multiple active sessions; pass --claude-session-id <id> or set $CLAUDE_SESSION_ID.\n');
   process.stderr.write('active sessions:\n');
   for (const s of slots) {
-    process.stderr.write(`  - ${s.claudeSessionId}: session ${s.sessionNumber}, ${s.ticketId ?? s.task}\n`);
+    process.stderr.write(`  - ${s.claudeSessionId}: session ${s.sessionNumber}, ${s.ticketId ?? s.task} (cwd: ${s.cwd})\n`);
   }
   return null;
 }

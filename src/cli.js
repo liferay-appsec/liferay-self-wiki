@@ -9,6 +9,7 @@ import { rebuildCommand } from './commands/rebuild.js';
 import { updateTopicsCommand } from './commands/update-topics.js';
 import { configCommand } from './commands/config.js';
 import { nudgeCommand } from './commands/nudge.js';
+import { closeOrphansCommand } from './commands/close-orphans.js';
 
 const program = new Command();
 
@@ -100,6 +101,13 @@ program
   .option('--claude-session-id <id>', 'Claude session id (overrides $CLAUDE_SESSION_ID)')
   .option('--after-min <n>', 'minutes elapsed before nudging (default 10)')
   .action(nudgeCommand);
+
+program
+  .command('close-orphans')
+  .description('Close any session blocks left with a dangling sentinel (markdown reaper).')
+  .option('--date <YYYY-MM-DD>', 'restrict to a single day (default: today)')
+  .option('--all', 'scan every Daily/<date>.md in the vault')
+  .action(closeOrphansCommand);
 
 program.addCommand(configCommand());
 

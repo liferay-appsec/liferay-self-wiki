@@ -51,8 +51,8 @@ Inside the vault directory you chose, `init` creates:
 | Hook              | Command                              | What it does                                           |
 | ----------------- | ------------------------------------ | ------------------------------------------------------ |
 | `SessionStart`    | `self-wiki session open`             | Detects task from branch/PR, opens a session block.    |
-| `Stop`            | `self-wiki session close --soft`     | Soft-close; reopens if a new prompt arrives soon.      |
-| `SessionEnd`      | `self-wiki session close --hard`     | Final close, folds notes into topic pages.             |
+| `Stop`            | `self-wiki session close --soft`     | Soft-close; reopens if a new prompt arrives soon. Stamps a `- Last activity: HH:MM` line on the session block so a reaper has a real end-time to use if `SessionEnd` never fires. |
+| `SessionEnd`      | `self-wiki session close --hard`     | Final close, folds notes into topic pages. Idempotent + self-healing — tolerates duplicate or missing sentinels. |
 | `UserPromptSubmit`| `self-wiki session switch --silent`  | Updates the session if the branch changed mid-session. |
 | `UserPromptSubmit`| `self-wiki nudge`                    | Once per session, on the first prompt with zero notes, primes the model with the noting contract so it reaches for `self-wiki note` when an outcome lands. |
 
@@ -101,7 +101,11 @@ self-wiki status                          # is a session active?
 self-wiki status --json                   # machine-readable
 self-wiki note "<text>"                   # append a note (the skill does this)
 self-wiki session switch -t LPD-22222     # manual task switch
+self-wiki close-orphans                   # close any session blocks left dangling (today)
+self-wiki close-orphans --all             # …or sweep every Daily/<date>.md
 ```
+
+Claude Code's `SessionEnd` hook is best-effort — when a terminal is killed or closed without a graceful exit it never fires, leaving a `<!-- session-N-open -->` sentinel in the daily file. `Stop` runs every turn and stamps a `Last activity:` line, so even when `SessionEnd` is missed, `close-orphans` can finalize each block with a real end-time and an `Interrupted: ⚠️` marker. The reaper inside `session open` does the same automatically once a slot is older than 6h.
 
 ## Weekly reports
 
