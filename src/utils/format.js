@@ -22,6 +22,33 @@ export function isoWeek(date = new Date()) {
   return `${d.getUTCFullYear()}-W${String(weekNum).padStart(2, '0')}`;
 }
 
+export function priorIsoWeek(weekStr) {
+  const m = weekStr.match(/^(\d{4})-W(\d{2})$/);
+  if (!m) throw new Error(`Invalid ISO week: ${weekStr}`);
+  const year = parseInt(m[1], 10);
+  const week = parseInt(m[2], 10);
+  if (week > 1) return `${year}-W${String(week - 1).padStart(2, '0')}`;
+  // Year boundary: walk from Mon of W1 of `year` back 7 days, then derive the
+  // ISO week of that Monday. Computed entirely in UTC to avoid the local-tz
+  // bug in isoWeek that flips W53 ↔ W52 around year boundaries.
+  const jan4 = new Date(Date.UTC(year, 0, 4));
+  const jan4Day = jan4.getUTCDay() || 7;
+  const monW1 = new Date(jan4);
+  monW1.setUTCDate(jan4.getUTCDate() - jan4Day + 1);
+  monW1.setUTCDate(monW1.getUTCDate() - 7);
+  // monW1 now = Monday of the prior ISO week (in year-1).
+  // Compute its week number: Thursday of that week determines the ISO year.
+  const thu = new Date(monW1);
+  thu.setUTCDate(monW1.getUTCDate() + 3);
+  const isoYear = thu.getUTCFullYear();
+  const isoYearJan4 = new Date(Date.UTC(isoYear, 0, 4));
+  const isoYearJan4Day = isoYearJan4.getUTCDay() || 7;
+  const isoYearMonW1 = new Date(isoYearJan4);
+  isoYearMonW1.setUTCDate(isoYearJan4.getUTCDate() - isoYearJan4Day + 1);
+  const weekNum = Math.round((monW1 - isoYearMonW1) / (7 * 86400000)) + 1;
+  return `${isoYear}-W${String(weekNum).padStart(2, '0')}`;
+}
+
 export function datesInWeek(weekStr) {
   const m = weekStr.match(/^(\d{4})-W(\d{2})$/);
   if (!m) throw new Error(`Invalid ISO week: ${weekStr}`);

@@ -2,10 +2,17 @@ import { readFile, writeFile, access } from 'fs/promises';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
 import { applyUserConfig, ensureVaultConfigured } from '../core/config.js';
-import { isoWeek, datesInWeek } from '../utils/format.js';
+import { isoWeek, datesInWeek, priorIsoWeek } from '../utils/format.js';
 import { parseDailyFile } from '../utils/log-parser.js';
 import { getDailyFilePath, getReportFilePath, ensureParentDir } from '../utils/paths.js';
 import { claudeHeadless, hasClaudeCli } from '../core/claude.js';
+
+function isWeekday(dateStr) {
+  // dateStr is YYYY-MM-DD; parse as UTC to keep day-of-week stable across tz.
+  const [y, m, d] = dateStr.split('-').map((s) => parseInt(s, 10));
+  const day = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  return day >= 1 && day <= 5;
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROMPT_PATH = resolve(__dirname, '..', 'templates', 'prompts', 'weekly-report.md');
@@ -27,7 +34,8 @@ export async function reportCommand(opts = {}) {
       present.push(dateStr);
       dailies.push({ dateStr, raw });
     } catch {
-      missing.push(dateStr);
+      // Only flag weekdays without logs as "missing"; weekend gaps are noise.
+      if (isWeekday(dateStr)) missing.push(dateStr);
     }
   }
 
@@ -37,7 +45,8 @@ export async function reportCommand(opts = {}) {
   }
 
   const metrics = await buildMetrics(present);
-  const prompt = await buildPrompt({ week, metrics, dailies, present, missing });
+  const priorReport = await loadPriorReport(week);
+  const prompt = await buildPrompt({ week, metrics, dailies, present, missing, priorReport });
 
   if (opts.dryRun) {
     process.stdout.write(prompt + '\n');
@@ -60,28 +69,62 @@ export async function reportCommand(opts = {}) {
 
 async function buildMetrics(dates) {
   const prSet = new Set();
+  const tickets = new Set();
+  const status = { completed: 0, interrupted: 0, open: 0, unknown: 0 };
+  let totalSessions = 0;
+  let daysWithLogs = 0;
   let forcePushes = 0;
-  let testsMentions = 0;
   for (const dateStr of dates) {
     const parsed = await parseDailyFile(dateStr);
+    if (parsed.sessions.length > 0) daysWithLogs += 1;
+    totalSessions += parsed.sessions.length;
+    for (const s of parsed.sessions) {
+      if (s.ticketId) tickets.add(s.ticketId);
+      status[s.status in status ? s.status : 'unknown'] += 1;
+    }
     const text = parsed.sessions.flatMap((s) => s.notes.map((n) => n.text)).join('\n');
-    const prMatches = text.match(/PR\s*#?(\d+)/gi) ?? [];
-    for (const m of prMatches) prSet.add(m.replace(/PR\s*#?/i, '#'));
+    // Tighter PR regex: 2–5 digits, must be preceded by `PR`/`pull` or `#`.
+    const prMatches = text.match(/(?:\b(?:PR|pull)\s*#?|#)(\d{2,5})\b/gi) ?? [];
+    for (const m of prMatches) prSet.add('#' + m.match(/\d+/)[0]);
     forcePushes += (text.match(/force[ -]?push/gi) ?? []).length;
-    testsMentions += (text.match(/\b(?:tests? added|new tests?|added \d+ tests?)\b/gi) ?? []).length;
   }
+  const statusBits = [];
+  if (status.completed) statusBits.push(`${status.completed} completed`);
+  if (status.interrupted) statusBits.push(`${status.interrupted} interrupted`);
+  if (status.open) statusBits.push(`${status.open} open`);
+  if (status.unknown) statusBits.push(`${status.unknown} unknown`);
+  const sortedPrs = [...prSet].sort((a, b) => parseInt(a.slice(1), 10) - parseInt(b.slice(1), 10));
+  const sortedTickets = [...tickets].sort();
   const lines = [];
-  lines.push(`- **PRs touched:** ${prSet.size > 0 ? [...prSet].sort().join(', ') : '—'}.`);
+  lines.push(
+    `- **Sessions:** ${totalSessions} total${statusBits.length > 0 ? ` (${statusBits.join(', ')})` : ''}. Days with logs: ${daysWithLogs}.`,
+  );
+  lines.push(`- **Tickets touched:** ${sortedTickets.length > 0 ? sortedTickets.join(', ') : '—'}.`);
+  lines.push(`- **PRs touched:** ${sortedPrs.length > 0 ? sortedPrs.join(', ') : '—'}.`);
   lines.push(`- **Force-push mentions:** ${forcePushes}.`);
-  lines.push(`- **Test-add mentions:** ${testsMentions}.`);
   return lines.join('\n');
 }
 
-async function buildPrompt({ week, metrics, dailies, present, missing }) {
+async function loadPriorReport(week) {
+  let priorWeek;
+  try {
+    priorWeek = priorIsoWeek(week);
+  } catch {
+    return null;
+  }
+  try {
+    const raw = await readFile(getReportFilePath(priorWeek), 'utf8');
+    return { week: priorWeek, body: raw.trim() };
+  } catch {
+    return null;
+  }
+}
+
+async function buildPrompt({ week, metrics, dailies, present, missing, priorReport }) {
   const promptHeader = await readFile(PROMPT_PATH, 'utf8');
   const sourcesLine = `Sources: ${present.map((d) => `\`Daily/${d}.md\``).join(', ')}.${missing.length > 0 ? ` Missing: ${missing.join(', ')}.` : ''}`;
   const dailiesBlock = dailies.map((d) => `## --- ${d.dateStr} ---\n\n${d.raw.trim()}`).join('\n\n');
-  return [
+  const parts = [
     promptHeader,
     '',
     '---',
@@ -96,5 +139,9 @@ async function buildPrompt({ week, metrics, dailies, present, missing }) {
     '',
     'DAILIES:',
     dailiesBlock,
-  ].join('\n');
+  ];
+  if (priorReport) {
+    parts.push('', `PRIOR_REPORT (${priorReport.week}):`, priorReport.body);
+  }
+  return parts.join('\n');
 }
