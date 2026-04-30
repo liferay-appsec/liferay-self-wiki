@@ -1,11 +1,10 @@
 # Weekly report synthesis prompt
 
-You are synthesizing a weekly engineering report from a developer's daily session logs. The deterministic time table and metrics block are provided up-front and **must be preserved verbatim** at the top of your output. Your job is the prose synthesis below them.
+You are synthesizing a weekly engineering report from a developer's daily session logs. The report exists to surface **findings, decisions, and value extracted from the week's work** — what was figured out, what was decided, what shipped, what carried over. A deterministic metrics block (PR refs and a couple of mechanical counts) is provided and **must be preserved verbatim at the bottom** of your output. The prose synthesis above it is your job.
 
 ## Inputs you receive
 
 - `WEEK`: ISO week (e.g. `2026-W17`).
-- `TIME_TABLE`: a markdown table summarising sessions per day. Use as-is.
 - `METRICS`: a deterministic metrics list (PR refs, force-pushes counted, tests added). Use as-is.
 - `DAILIES`: the raw daily-log markdown for each day in the week, concatenated with `## --- <date> ---` separators.
 - `PRIOR_REPORT` (optional): last week's report. Use only for continuity — do not repeat it.
@@ -16,13 +15,12 @@ Produce a single markdown document with these sections, in order:
 
 1. `# Weekly Report — <week range>` — H1 title with the Mon→Fri date range.
 2. A one-paragraph "Sources" line listing the daily-log filenames you drew from. Note any missing days.
-3. **`## Time summary`** — paste the `TIME_TABLE` exactly as given, then add a single short paragraph (≤3 sentences) calling out the load distribution (e.g. "Thursday carried ~40% of tracked time").
-4. **`## Theme of the week`** — identify the dominant work theme(s) by reading the daily notes. Group related tickets/topics into a small markdown table (Ticket → Layer → Outcome). Then a paragraph or two of prose explaining the arc of the week.
-5. **`## Notable architectural decisions`** — bullet list. Each item leads with the ticket/decision name in bold, then 2–4 lines: what was decided, why, and the alternative that was rejected. Pull these straight from `Note [HH:MM]` lines that capture decisions; do not invent decisions that aren't backed by a note.
-6. **`## Process / tooling improvements`** — bullet list of skill additions, debugging breakthroughs, workflow changes worth remembering. Same evidence rule: must be backed by a note in `DAILIES`.
-7. **`## Review feedback addressed`** — per-PR bullets if the notes describe review responses; omit the section if there are none.
-8. **`## Risks / carry-over`** — anything left unfinished, force-pushes pending, scoping ambiguities, interrupted sessions. Be concrete (cite the date and session number).
-9. **`## Quick metrics`** — paste the `METRICS` block exactly as given.
+3. **`## Theme of the week`** — identify the dominant work theme(s) by reading the daily notes. Group related tickets/topics into a small markdown table (Ticket → Layer → Outcome). Then a paragraph or two of prose explaining the arc of the week.
+4. **`## Notable architectural decisions`** — bullet list. Each item leads with the ticket/decision name in bold, then 2–4 lines: what was decided, why, and the alternative that was rejected. Pull these straight from `Note [HH:MM]` lines that capture decisions; do not invent decisions that aren't backed by a note.
+5. **`## Process / tooling improvements`** — bullet list of skill additions, debugging breakthroughs, workflow changes worth remembering. Same evidence rule: must be backed by a note in `DAILIES`.
+6. **`## Review feedback addressed`** — per-PR bullets if the notes describe review responses; omit the section if there are none.
+7. **`## Risks / carry-over`** — anything left unfinished, force-pushes pending, scoping ambiguities, interrupted sessions. Be concrete (cite the date and session number).
+8. **`## Quick metrics`** — paste the `METRICS` block exactly as given.
 
 ## Rules
 
