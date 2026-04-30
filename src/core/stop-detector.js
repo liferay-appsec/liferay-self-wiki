@@ -8,7 +8,7 @@ import { looksLikeClosingSummary } from './closing-tells.js';
 // Robust against partial/corrupt transcripts; returns a defensive default on
 // any error so the Stop hook never fails.
 export async function inspectTranscript(transcriptPath) {
-  const empty = { closingTellDetected: false, noteAdded: false, lastTextSnippet: '' };
+  const empty = { closingTellDetected: false, noteAdded: false, lastTextSnippet: '', leafUuid: '' };
   if (!transcriptPath || typeof transcriptPath !== 'string') return empty;
 
   let raw;
@@ -29,9 +29,11 @@ export async function inspectTranscript(transcriptPath) {
 
   let assistantText = '';
   let noteAdded = false;
+  let leafUuid = '';
 
   for (const entry of turn) {
     if (entry?.message?.role !== 'assistant') continue;
+    if (typeof entry?.uuid === 'string' && entry.uuid) leafUuid = entry.uuid;
     const content = entry.message.content;
     if (!Array.isArray(content)) continue;
     for (const block of content) {
@@ -49,7 +51,7 @@ export async function inspectTranscript(transcriptPath) {
   const closingTellDetected = looksLikeClosingSummary(assistantText);
   const lastTextSnippet = assistantText.trim().slice(-240);
 
-  return { closingTellDetected, noteAdded, lastTextSnippet };
+  return { closingTellDetected, noteAdded, lastTextSnippet, leafUuid };
 }
 
 function collectLastTurn(lines) {

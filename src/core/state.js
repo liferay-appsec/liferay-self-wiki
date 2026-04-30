@@ -7,6 +7,13 @@ import {
   ensureSessionsDir,
 } from '../utils/paths.js';
 
+// Slot shape: { status, dateStr, sessionNumber, task, ticketId, branch, cwd,
+//   repo, prNumber, claudeSessionId, startedAt, closedAt, nudgedAt?,
+//   pendingNudge?, lastBlockedTurnId? }
+// `lastBlockedTurnId` is the assistant leaf UUID of the most recent turn for
+// which `session close --soft --block-on-tell` already emitted a Stop-block;
+// used to prevent re-blocking the same turn (no built-in stop_hook_active).
+
 export async function readSession(claudeSessionId) {
   try {
     const raw = await readFile(getSessionFilePath(claudeSessionId), 'utf8');

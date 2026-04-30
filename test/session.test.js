@@ -1,6 +1,6 @@
 import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, mkdirSync, readFileSync } from 'fs';
+import { mkdtempSync, rmSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -152,6 +152,151 @@ test('sessionClose with no active session returns null silently', async () => {
     silent: true,
   });
   assert.equal(result, null);
+});
+
+function writeTranscript(name, entries) {
+  const path = join(tmp, name);
+  const body = entries.map((e) => JSON.stringify(e)).join('\n') + '\n';
+  writeFileSync(path, body, 'utf8');
+  return path;
+}
+
+function userMsg(text) {
+  return { type: 'user', message: { role: 'user', content: text } };
+}
+
+function asstWrap(text, uuid) {
+  return {
+    type: 'assistant',
+    uuid,
+    message: { role: 'assistant', content: [{ type: 'text', text }] },
+  };
+}
+
+function asstWithNote(text, uuid, command) {
+  return {
+    type: 'assistant',
+    uuid,
+    message: {
+      role: 'assistant',
+      content: [
+        { type: 'text', text },
+        { type: 'tool_use', name: 'Bash', input: { command } },
+      ],
+    },
+  };
+}
+
+async function captureStdout(fn) {
+  const orig = process.stdout.write.bind(process.stdout);
+  let captured = '';
+  process.stdout.write = (chunk, ...rest) => {
+    captured += typeof chunk === 'string' ? chunk : chunk.toString();
+    return true;
+  };
+  try {
+    const result = await fn();
+    return { result, captured };
+  } finally {
+    process.stdout.write = orig;
+  }
+}
+
+test('sessionClose --soft --block-on-tell emits decision:block JSON when wrap-up has no note', async () => {
+  await session.sessionOpen({ claudeSessionId: 'block-1', cwd: tmp });
+  const transcript = writeTranscript('t-block-1.jsonl', [
+    userMsg('open the PR'),
+    asstWrap('PR #2814 opened against liferay-appsec.', 'leaf-1'),
+  ]);
+  const { captured } = await captureStdout(() =>
+    session.sessionClose({
+      claudeSessionId: 'block-1',
+      soft: true,
+      silent: true,
+      blockOnTell: true,
+      hookPayload: { session_id: 'block-1', transcript_path: transcript },
+    }),
+  );
+  const trimmed = captured.trim();
+  const parsed = JSON.parse(trimmed);
+  assert.equal(parsed.decision, 'block');
+  assert.match(parsed.reason, /self-wiki note/);
+
+  const persisted = await state.readSession('block-1');
+  assert.equal(persisted.lastBlockedTurnId, 'leaf-1');
+  assert.equal(persisted.pendingNudge?.kind, 'closing-summary');
+});
+
+test('sessionClose --soft --block-on-tell does not re-block the same turn', async () => {
+  await session.sessionOpen({ claudeSessionId: 'block-2', cwd: tmp });
+  const transcript = writeTranscript('t-block-2.jsonl', [
+    userMsg('open the PR'),
+    asstWrap('PR #2814 opened.', 'leaf-2'),
+  ]);
+  // First close emits block
+  await captureStdout(() =>
+    session.sessionClose({
+      claudeSessionId: 'block-2',
+      soft: true,
+      silent: true,
+      blockOnTell: true,
+      hookPayload: { session_id: 'block-2', transcript_path: transcript },
+    }),
+  );
+  // Reopen via switch (soft-closed → open)
+  await session.sessionSwitch({ claudeSessionId: 'block-2', task: 'still working', silent: true });
+  // Second close on the same leafUuid must not re-emit block
+  const { captured } = await captureStdout(() =>
+    session.sessionClose({
+      claudeSessionId: 'block-2',
+      soft: true,
+      silent: true,
+      blockOnTell: true,
+      hookPayload: { session_id: 'block-2', transcript_path: transcript },
+    }),
+  );
+  assert.equal(captured.trim(), '', 'second close on same leafUuid must emit no JSON');
+});
+
+test('sessionClose --soft --block-on-tell does not block when self-wiki note ran in turn', async () => {
+  await session.sessionOpen({ claudeSessionId: 'block-3', cwd: tmp });
+  const transcript = writeTranscript('t-block-3.jsonl', [
+    userMsg('open the PR'),
+    asstWithNote('PR #99 opened.', 'leaf-3', 'self-wiki note "PR #99 opened"'),
+  ]);
+  const { captured } = await captureStdout(() =>
+    session.sessionClose({
+      claudeSessionId: 'block-3',
+      soft: true,
+      silent: true,
+      blockOnTell: true,
+      hookPayload: { session_id: 'block-3', transcript_path: transcript },
+    }),
+  );
+  assert.equal(captured.trim(), '');
+  const persisted = await state.readSession('block-3');
+  assert.equal(persisted.lastBlockedTurnId ?? null, null);
+  assert.equal(persisted.pendingNudge ?? null, null);
+});
+
+test('sessionClose --soft without --block-on-tell still queues pendingNudge but emits no JSON', async () => {
+  await session.sessionOpen({ claudeSessionId: 'block-4', cwd: tmp });
+  const transcript = writeTranscript('t-block-4.jsonl', [
+    userMsg('open the PR'),
+    asstWrap('PR #1 opened.', 'leaf-4'),
+  ]);
+  const { captured } = await captureStdout(() =>
+    session.sessionClose({
+      claudeSessionId: 'block-4',
+      soft: true,
+      silent: true,
+      hookPayload: { session_id: 'block-4', transcript_path: transcript },
+    }),
+  );
+  assert.equal(captured.trim(), '', 'without --block-on-tell, no JSON to stdout');
+  const persisted = await state.readSession('block-4');
+  assert.equal(persisted.pendingNudge?.kind, 'closing-summary', 'fallback queue still set');
+  assert.equal(persisted.lastBlockedTurnId ?? null, null);
 });
 
 test('sessionSwitch on a soft-closed session reopens it before switching', async () => {

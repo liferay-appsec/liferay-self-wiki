@@ -45,6 +45,7 @@ session
   .option('--interrupted', 'mark as interrupted instead of completed')
   .option('--silent', 'suppress stdout messages')
   .option('--skip-topics', 'do not update topic pages')
+  .option('--block-on-tell', 'on soft-close, emit a Claude Code Stop-block JSON when the turn looks like a wrap-up with no note')
   .option('--claude-session-id <id>', 'Claude session id from hook payload')
   .action(sessionClose);
 
