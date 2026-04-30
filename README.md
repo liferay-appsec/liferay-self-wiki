@@ -115,7 +115,7 @@ self-wiki report --week 2026-W17          # specific week
 self-wiki report --week 2026-W17 --dry-run  # print the synthesis prompt only
 ```
 
-The deterministic time table and metrics are computed in code; the prose is synthesized by Claude (`claude -p`). The synthesis prompt lives at `src/templates/prompts/weekly-report.md` — edit it to taste.
+The deterministic metrics block (PR refs, force-push and test-add counts) is computed in code; the prose synthesis (themes, decisions, risks, carry-over) is produced by Claude (`claude -p`). The synthesis prompt lives at `src/templates/prompts/weekly-report.md` — edit it to taste.
 
 ## Topic pages
 
