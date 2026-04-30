@@ -10,7 +10,7 @@
     "Stop": [
       {
         "hooks": [
-          { "type": "command", "command": "self-wiki session close --soft --silent 2>&1 || true" }
+          { "type": "command", "command": "self-wiki session close --soft --silent --block-on-tell || true" }
         ]
       }
     ],

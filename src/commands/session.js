@@ -113,6 +113,8 @@ export async function sessionClose(opts = {}) {
   const mode = opts.soft ? 'soft' : 'hard';
   if (mode === 'soft') {
     let pendingNudge = state.pendingNudge ?? null;
+    let lastBlockedTurnId = state.lastBlockedTurnId ?? null;
+    let blockEmission = null;
     try {
       const inspection = await inspectTranscript(hookPayload?.transcript_path);
       if (inspection.closingTellDetected && !inspection.noteAdded) {
@@ -121,6 +123,19 @@ export async function sessionClose(opts = {}) {
           detectedAt: new Date().toISOString(),
           snippet: inspection.lastTextSnippet,
         };
+        const shouldBlock =
+          opts.blockOnTell &&
+          inspection.leafUuid &&
+          inspection.leafUuid !== state.lastBlockedTurnId;
+        if (shouldBlock) {
+          lastBlockedTurnId = inspection.leafUuid;
+          blockEmission = {
+            decision: 'block',
+            reason:
+              'Your last turn looks like a wrap-up but no `self-wiki note` was logged. Drop a `self-wiki note "<text>"` now naming the artifact (PR/commit/test count) before stopping. Tail of that turn: ' +
+              JSON.stringify(inspection.lastTextSnippet),
+          };
+        }
       }
     } catch (err) {
       await logCloseError({
@@ -135,6 +150,7 @@ export async function sessionClose(opts = {}) {
       status: 'soft-closed',
       closedAt: new Date().toISOString(),
       pendingNudge,
+      lastBlockedTurnId,
     };
     await writeSession(claudeSessionId, next);
     try {
@@ -151,6 +167,10 @@ export async function sessionClose(opts = {}) {
         dateStr: state.dateStr,
         error: err.message,
       });
+    }
+    if (blockEmission) {
+      process.stdout.write(JSON.stringify(blockEmission) + '\n');
+      return next;
     }
     if (!opts.silent) process.stdout.write(`session ${state.sessionNumber} soft-closed\n`);
     return next;

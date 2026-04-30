@@ -27,15 +27,17 @@ function userPrompt(text) {
   return { type: 'user', message: { role: 'user', content: text } };
 }
 
-function assistantText(text) {
-  return {
+function assistantText(text, uuid) {
+  const entry = {
     type: 'assistant',
     message: { role: 'assistant', content: [{ type: 'text', text }] },
   };
+  if (uuid) entry.uuid = uuid;
+  return entry;
 }
 
-function assistantWithNote(text, command) {
-  return {
+function assistantWithNote(text, command, uuid) {
+  const entry = {
     type: 'assistant',
     message: {
       role: 'assistant',
@@ -45,6 +47,8 @@ function assistantWithNote(text, command) {
       ],
     },
   };
+  if (uuid) entry.uuid = uuid;
+  return entry;
 }
 
 function toolResult(id) {
@@ -137,11 +141,32 @@ test('inspectTranscript treats tool_result user messages as part of the same tur
 
 test('inspectTranscript returns safe defaults on missing/empty files', async () => {
   const r1 = await inspectTranscript('/nonexistent/path.jsonl');
-  assert.deepEqual(r1, { closingTellDetected: false, noteAdded: false, lastTextSnippet: '' });
+  assert.deepEqual(r1, { closingTellDetected: false, noteAdded: false, lastTextSnippet: '', leafUuid: '' });
 
   const empty = writeJsonl('empty.jsonl', []);
   const r2 = await inspectTranscript(empty);
   assert.equal(r2.closingTellDetected, false);
+  assert.equal(r2.leafUuid, '');
+});
+
+test('inspectTranscript returns the last assistant uuid as leafUuid', async () => {
+  const path = writeJsonl('leaf.jsonl', [
+    userPrompt('hi'),
+    assistantText('intermediate', 'asst-1'),
+    assistantText('PR #99 opened — ready for review', 'asst-leaf'),
+  ]);
+  const result = await inspectTranscript(path);
+  assert.equal(result.leafUuid, 'asst-leaf');
+  assert.equal(result.closingTellDetected, true);
+});
+
+test('inspectTranscript leafUuid stays empty when no assistant entry has a uuid', async () => {
+  const path = writeJsonl('no-uuid.jsonl', [
+    userPrompt('hi'),
+    assistantText('PR #1 opened'),
+  ]);
+  const result = await inspectTranscript(path);
+  assert.equal(result.leafUuid, '');
 });
 
 test('inspectTranscript is robust to malformed JSON lines', async () => {
