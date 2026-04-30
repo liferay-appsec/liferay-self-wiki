@@ -1,4 +1,14 @@
 #!/usr/bin/env node
+// Headless escape hatch: when self-wiki invokes `claude -p` for synthesis
+// (e.g. weekly report), it sets SELF_WIKI_HEADLESS=1 on the child env. The
+// child Claude inherits the user's hooks and may auto-load the wiki skill,
+// both of which would otherwise call back into this CLI and contaminate
+// state — or worse, make the model echo "Noted." instead of producing the
+// requested output. Exit 0 silently for every subcommand in that mode.
+if (process.env.SELF_WIKI_HEADLESS === '1') {
+  process.exit(0);
+}
+
 import { Command } from 'commander';
 import { sessionOpen, sessionClose, sessionSwitch } from './commands/session.js';
 import { noteCommand } from './commands/note.js';

@@ -4,7 +4,10 @@ export async function claudeHeadless(prompt, opts = {}) {
   const args = ['-p'];
   if (opts.model) args.push('--model', opts.model);
   return new Promise((resolve, reject) => {
-    const child = spawn('claude', args, { stdio: ['pipe', 'pipe', 'inherit'] });
+    const child = spawn('claude', args, {
+      stdio: ['pipe', 'pipe', 'inherit'],
+      env: { ...process.env, SELF_WIKI_HEADLESS: '1' },
+    });
     let out = '';
     child.stdout.on('data', (chunk) => { out += chunk.toString('utf8'); });
     child.on('error', reject);
