@@ -41,8 +41,12 @@ export async function initCommand(vaultArg, opts = {}) {
     process.stdout.write(`  ${chalk.yellow('·')} ${rel(vaultCfgDest)} already exists (left as-is)\n`);
   }
 
-  await writeUserConfig({ vaultPath });
-  process.stdout.write(`  ${chalk.green('✓')} user config recorded vault path\n`);
+  if (opts.setDefault !== false) {
+    await writeUserConfig({ vaultPath });
+    process.stdout.write(`  ${chalk.green('✓')} user config recorded vault path\n`);
+  } else {
+    process.stdout.write(`  ${chalk.yellow('·')} skipped writing vault path to user config (--no-set-default)\n`);
+  }
 
   if (opts.skill !== false) {
     await mkdir(dirname(SKILL_DEST), { recursive: true });

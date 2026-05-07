@@ -33,6 +33,7 @@ program
   .description('Scaffold a vault, install the wiki skill, and propose Claude Code hooks.')
   .option('--no-hooks', 'skip writing hooks to ~/.claude/settings.json')
   .option('--no-skill', 'skip installing the skill to ~/.claude/skills/wiki/')
+  .option('--no-set-default', 'scaffold the vault without persisting it as the default in ~/.config/self-wiki/config.json (use for tmp/test vaults)')
   .option('-y, --yes', 'skip confirmation prompts')
   .action(initCommand);
 
