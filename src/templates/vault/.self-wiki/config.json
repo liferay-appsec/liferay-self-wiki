@@ -2,5 +2,10 @@
   "ticketRegex": "\\b(LPD|LPP|LPS|LRELEASE)-\\d+\\b",
   "branchTicketRegex": "(?:^|[/_-])((?:LPD|LPP|LPS|LRELEASE)-\\d+)(?:[/_-]|$)",
   "components": [],
-  "softCloseMinutes": 5
+  "softCloseMinutes": 5,
+  "review": {
+    "cycleEndMonths": [5, 9, 12],
+    "lastReviewedAt": null,
+    "lastReviewedCycle": null
+  }
 }
