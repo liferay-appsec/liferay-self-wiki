@@ -18,6 +18,7 @@ const VAULT_DEFAULTS = {
   branchTicketRegex: '(?:^|[/_-])((?:LPD|LPP|LPS|LRELEASE)-\\d+)(?:[/_-]|$)',
   components: [],
   softCloseMinutes: 5,
+  review: { cycleEndMonths: [5, 9, 12], lastReviewedAt: null, lastReviewedCycle: null },
 };
 
 export async function readUserConfig() {
@@ -53,6 +54,9 @@ export async function readVaultConfig() {
 export async function writeVaultConfig(patch) {
   const current = await readVaultConfig();
   const next = { ...current, ...patch };
+  if (patch.review) {
+    next.review = { ...current.review, ...patch.review };
+  }
   const path = getVaultConfigFilePath();
   await ensureParentDir(path);
   await writeFile(path, JSON.stringify(next, null, 2), 'utf8');
@@ -73,5 +77,5 @@ export function ensureVaultConfigured() {
 }
 
 export function getVaultDefaults() {
-  return { ...VAULT_DEFAULTS };
+  return structuredClone(VAULT_DEFAULTS);
 }
