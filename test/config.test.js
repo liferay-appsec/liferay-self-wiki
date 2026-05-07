@@ -86,3 +86,65 @@ test('getVaultDefaults returns a fresh clone each call', () => {
   a.softCloseMinutes = 999;
   assert.notEqual(b.softCloseMinutes, 999);
 });
+
+test('readVaultConfig defaults expose the review block (D-08)', async () => {
+  paths.setVaultPath(vault);
+  const cfg = await config.readVaultConfig();
+  assert.deepEqual(cfg.review.cycleEndMonths, [5, 9, 12]);
+  assert.equal(cfg.review.lastReviewedAt, null);
+  assert.equal(cfg.review.lastReviewedCycle, null);
+});
+
+test('readVaultConfig lazy-migrates a legacy on-disk config without a review key (D-07)', async () => {
+  // Write a legacy-shape vault config (no `review` key) directly to disk and
+  // confirm readVaultConfig surfaces the new defaults transparently.
+  const { writeFile, mkdir } = await import('fs/promises');
+  const { dirname } = await import('path');
+  paths.setVaultPath(vault);
+  const cfgPath = paths.getVaultConfigFilePath();
+  await mkdir(dirname(cfgPath), { recursive: true });
+  const legacy = {
+    ticketRegex: '\\b(LPD|LPP|LPS|LRELEASE)-\\d+\\b',
+    branchTicketRegex: '(?:^|[/_-])((?:LPD|LPP|LPS|LRELEASE)-\\d+)(?:[/_-]|$)',
+    components: ['portal'],
+    softCloseMinutes: 7,
+  };
+  await writeFile(cfgPath, JSON.stringify(legacy, null, 2), 'utf8');
+
+  const cfg = await config.readVaultConfig();
+  // Legacy values preserved
+  assert.deepEqual(cfg.components, ['portal']);
+  assert.equal(cfg.softCloseMinutes, 7);
+  // New defaults transparently present
+  assert.deepEqual(cfg.review.cycleEndMonths, [5, 9, 12]);
+  assert.equal(cfg.review.lastReviewedAt, null);
+  assert.equal(cfg.review.lastReviewedCycle, null);
+});
+
+test('writeVaultConfig deep-merges review sub-object (Phase-3 ambush prevention)', async () => {
+  paths.setVaultPath(vault);
+  // First write — only stamps lastReviewedAt/lastReviewedCycle.
+  await config.writeVaultConfig({
+    review: { lastReviewedAt: '2026-05-15', lastReviewedCycle: '2026-cycle1' },
+  });
+  let cfg = await config.readVaultConfig();
+  // Sibling default cycleEndMonths must survive a partial review patch.
+  assert.deepEqual(cfg.review.cycleEndMonths, [5, 9, 12]);
+  assert.equal(cfg.review.lastReviewedAt, '2026-05-15');
+  assert.equal(cfg.review.lastReviewedCycle, '2026-cycle1');
+
+  // Second write — change cycleEndMonths only; lastReviewedAt must survive.
+  await config.writeVaultConfig({ review: { cycleEndMonths: [6, 12] } });
+  cfg = await config.readVaultConfig();
+  assert.deepEqual(cfg.review.cycleEndMonths, [6, 12]);
+  assert.equal(cfg.review.lastReviewedAt, '2026-05-15');
+  assert.equal(cfg.review.lastReviewedCycle, '2026-cycle1');
+});
+
+test('getVaultDefaults includes review and returns a fresh clone each call', () => {
+  const a = config.getVaultDefaults();
+  const b = config.getVaultDefaults();
+  assert.notEqual(a.review, b.review);
+  a.review.cycleEndMonths.push(99);
+  assert.deepEqual(b.review.cycleEndMonths, [5, 9, 12]);
+});
