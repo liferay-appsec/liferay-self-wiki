@@ -88,9 +88,20 @@ export function resolveCycle(date, cycleEndMonths) {
   const m = today.getUTCMonth() + 1; // 1-indexed
   const y = today.getUTCFullYear();
 
-  // current = cycle whose cycleEndMonth is the smallest entry >= m (D-04).
-  // If m exceeds every entry, the current cycle is the FIRST entry of NEXT year
-  // (its review month falls next year; the cycle has already started this year).
+  // current = cycle whose cycleEndMonth is the smallest entry >= m, with one
+  // refinement reconciled from must_haves and D-03 contiguous coverage:
+  //
+  //   - When m equals the FIRST entry (i.e. cycle1's review month), `current`
+  //     stays cycle1 (D-04 explicit example: during May with [5,9,12], current
+  //     remains cycle1 because the user is writing cycle1's review).
+  //   - When m equals any LATER entry, that month is the start of the *next*
+  //     cycle's coverage per D-03 contiguous coverage. Example: with [5,9,12],
+  //     Sep 1 is the start of cycle3's coverage (per D-03 cycle3 = Sep 1 → Nov 30),
+  //     so on Sep 1 current=cycle3 — not cycle2. Mechanically: on m == cem[i] for
+  //     i > 0, advance to i+1 (with year-wrap to cycle1 of y+1 if past end).
+  //
+  // If m exceeds every entry, current is the FIRST entry of NEXT year (its review
+  // month falls next year; the cycle has already started its coverage this year).
   let curOrdinalZero = -1;
   for (let i = 0; i < cycleEndMonths.length; i++) {
     if (cycleEndMonths[i] >= m) { curOrdinalZero = i; break; }
@@ -99,6 +110,16 @@ export function resolveCycle(date, cycleEndMonths) {
   if (curOrdinalZero === -1) {
     curOrdinalZero = 0;
     curReviewYear = y + 1;
+  } else if (curOrdinalZero > 0 && cycleEndMonths[curOrdinalZero] === m) {
+    // m exactly equals a non-first entry — we're already in the next cycle's
+    // coverage (D-03). Advance one slot, year-wrap if needed.
+    if (curOrdinalZero + 1 < cycleEndMonths.length) {
+      curOrdinalZero += 1;
+      curReviewYear = y;
+    } else {
+      curOrdinalZero = 0;
+      curReviewYear = y + 1;
+    }
   } else {
     curReviewYear = y;
   }
