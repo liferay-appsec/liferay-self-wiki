@@ -84,11 +84,11 @@ test('setVaultPath enables vault-relative helpers', () => {
   );
 });
 
-test('ensureVaultDirs creates Daily/Reports/Tickets/Components/.self-wiki', async () => {
+test('ensureVaultDirs creates Daily/Reports/Reviews/Tickets/Components/.self-wiki', async () => {
   const vault = join(tmp, 'vault');
   paths.setVaultPath(vault);
   await paths.ensureVaultDirs();
-  for (const sub of ['Daily', 'Reports', 'Tickets', 'Components', '.self-wiki']) {
+  for (const sub of ['Daily', 'Reports', 'Reviews', 'Tickets', 'Components', '.self-wiki']) {
     assert.ok(statSync(join(vault, sub)).isDirectory(), `missing ${sub}`);
   }
 });

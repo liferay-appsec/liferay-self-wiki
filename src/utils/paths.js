@@ -85,7 +85,7 @@ export async function ensureParentDir(filePath) {
 
 export async function ensureVaultDirs() {
   const vault = getVaultPath();
-  for (const sub of ['Daily', 'Reports', 'Tickets', 'Components', '.self-wiki']) {
+  for (const sub of ['Daily', 'Reports', 'Reviews', 'Tickets', 'Components', '.self-wiki']) {
     await mkdir(join(vault, sub), { recursive: true });
   }
 }
