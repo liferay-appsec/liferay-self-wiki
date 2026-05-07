@@ -30,7 +30,7 @@ export async function initCommand(vaultArg, opts = {}) {
   process.stdout.write(chalk.bold(`self-wiki init → ${vaultPath}\n\n`));
 
   await ensureVaultDirs();
-  process.stdout.write(`  ${chalk.green('✓')} vault folders ready (Daily/, Reports/, Tickets/, Components/)\n`);
+  process.stdout.write(`  ${chalk.green('✓')} vault folders ready (Daily/, Reports/, Reviews/, Tickets/, Components/)\n`);
 
   const vaultCfgDest = getVaultConfigFilePath();
   if (!(await fileExists(vaultCfgDest))) {
