@@ -267,7 +267,18 @@ async function reportMonthOrchestrator(opts) {
       const weekDates = datesInWeek(weekStr);
       const hasAnyDaily = await anyDailyExists(weekDates);
       if (!hasAnyDaily) continue; // MONTH-04: graceful skip on weeks with zero dailies
-      await reportWeekOrchestrator({ week: weekStr, internal: true });
+      try {
+        await reportWeekOrchestrator({ week: weekStr, internal: true });
+      } catch (err) {
+        // The hasClaudeCli() pre-check above guards binary-presence, but
+        // claude -p itself can still fail mid-loop (network blip, model
+        // error, OOM, killed). Without this catch the rejection bubbles
+        // through cli.js's parseAsync and exits 1, leaving any weekly
+        // reports written so far on disk — exactly the partial-state
+        // outcome the comment block above the gate disclaims. Log and
+        // continue so the monthly run remains best-effort.
+        process.stderr.write(`warn: backfill failed for ${weekStr}: ${err.message}\n`);
+      }
     }
     // Re-load — the loop just wrote new files for some weeks; the
     // downstream buildMonthlyPrompt MUST see the post-backfill state.
