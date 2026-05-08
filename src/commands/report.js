@@ -69,6 +69,15 @@ async function reportWeekOrchestrator(opts) {
   }
 
   if (present.length === 0) {
+    if (internal) {
+      // Monthly auto-backfill caller. A racy disappearance of dailies
+      // between the outer anyDailyExists() short-circuit and the inner
+      // reads here must not tear down the surrounding monthly run —
+      // it's exactly the "no partial state" invariant documented at the
+      // backfill loop. Skip this week and let the loop continue.
+      process.stderr.write(`warn: skipping ${week} — no daily logs at synthesis time\n`);
+      return;
+    }
     process.stderr.write(`error: no daily logs found for ${week}\n`);
     process.exit(1);
   }
