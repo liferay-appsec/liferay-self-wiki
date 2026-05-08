@@ -1,17 +1,34 @@
 import { readFile, writeFile, access, readdir } from 'fs/promises';
 import { fileURLToPath } from 'url';
-import { dirname, join, resolve } from 'path';
+import { dirname, join, resolve, sep } from 'path';
 import { applyUserConfig, ensureVaultConfigured, readVaultConfig } from '../core/config.js';
 import { buildMetrics } from '../core/metrics.js';
 import { isoWeek, datesInWeek, priorIsoWeek, datesInMonth, priorMonth, weeksInMonth } from '../utils/format.js';
 import { getDailyFilePath, getReportFilePath, getVaultPath, ensureParentDir } from '../utils/paths.js';
 import { claudeHeadless, hasClaudeCli } from '../core/claude.js';
+import { escapeRegex } from '../utils/regex.js';
 
 function isWeekday(dateStr) {
   // dateStr is YYYY-MM-DD; parse as UTC to keep day-of-week stable across tz.
   const [y, m, d] = dateStr.split('-').map((s) => parseInt(s, 10));
   const day = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
   return day >= 1 && day <= 5;
+}
+
+// Resolve a user-supplied --out path against the vault root. CLAUDE.md's
+// "don't write to topic pages outside src/core/topics.js" rule is at risk
+// when --out points into Tickets/ or Components/, and a path like
+// /etc/passwd would silently overwrite arbitrary files. Warn loudly when
+// the resolved target is outside the vault, but do not block (the user
+// may legitimately want to dump a report to /tmp for inspection).
+function resolveOutPath(rawOut, defaultPath) {
+  if (!rawOut) return defaultPath;
+  const resolved = resolve(rawOut);
+  const vaultPrefix = resolve(getVaultPath()) + sep;
+  if (!resolved.startsWith(vaultPrefix)) {
+    process.stderr.write(`warn: --out path is outside the vault: ${resolved}\n`);
+  }
+  return resolved;
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -53,17 +70,31 @@ async function reportWeekOrchestrator(opts) {
 
   for (const dateStr of dates) {
     try {
-      await access(getDailyFilePath(dateStr));
+      // Single read — readFile is the only point of truth for "present".
+      // The previous access()+readFile pair created a TOCTOU window and
+      // also mis-classified non-ENOENT errors (perm flap, I/O) as
+      // "missing"; here we let unexpected errors surface and only treat
+      // ENOENT as "no daily for this date".
       const raw = await readFile(getDailyFilePath(dateStr), 'utf8');
       present.push(dateStr);
       dailies.push({ dateStr, raw });
-    } catch {
+    } catch (err) {
+      if (err.code !== 'ENOENT') throw err;
       // Only flag weekdays without logs as "missing"; weekend gaps are noise.
       if (isWeekday(dateStr)) missing.push(dateStr);
     }
   }
 
   if (present.length === 0) {
+    if (internal) {
+      // Monthly auto-backfill caller. A racy disappearance of dailies
+      // between the outer anyDailyExists() short-circuit and the inner
+      // reads here must not tear down the surrounding monthly run —
+      // it's exactly the "no partial state" invariant documented at the
+      // backfill loop. Skip this week and let the loop continue.
+      process.stderr.write(`warn: skipping ${week} — no daily logs at synthesis time\n`);
+      return;
+    }
     process.stderr.write(`error: no daily logs found for ${week}\n`);
     process.exit(1);
   }
@@ -87,7 +118,7 @@ async function reportWeekOrchestrator(opts) {
   process.stderr.write(`${internal ? 'backfilling' : 'synthesizing'} ${week}…\n`);
   const body = await claudeHeadless(prompt);
 
-  const outPath = opts.out || getReportFilePath(week);
+  const outPath = resolveOutPath(opts.out, getReportFilePath(week));
   await ensureParentDir(outPath);
   await writeFile(outPath, body.endsWith('\n') ? body : body + '\n', 'utf8');
   if (!internal) {
@@ -96,13 +127,19 @@ async function reportWeekOrchestrator(opts) {
 }
 
 // Used by the auto-backfill loop to skip ISO weeks whose constituent dates
-// have no daily log on disk (MONTH-04 graceful degradation).
+// have no daily log on disk (MONTH-04 graceful degradation). Only ENOENT
+// is treated as "no daily for this date" — other errors (permission,
+// I/O) are surfaced rather than silently masked, which previously could
+// cause monthly synthesis to skip weeks the user simply could not read.
 async function anyDailyExists(dates) {
   for (const d of dates) {
     try {
       await access(getDailyFilePath(d));
       return true;
-    } catch { /* keep checking */ }
+    } catch (err) {
+      if (err.code !== 'ENOENT') throw err;
+      // ENOENT — keep checking the next date.
+    }
   }
   return false;
 }
@@ -210,9 +247,15 @@ async function loadInMonthTopicPages(monthStr) {
         continue;
       }
       // A topic page is "touched in-month" when at least one of the in-month
-      // YYYY-MM-DD strings appears under a `## ` section header (the
-      // convention used by src/core/topics.js#appendDatedSection).
-      const touched = dates.some((d) => raw.includes(`## ${d} `));
+      // YYYY-MM-DD strings appears under a `## ` section header. The
+      // current convention in src/core/topics.js#appendDatedSection is
+      // `## ${dateStr} — Session ${n}`, but we anchor on `^## <date>\b`
+      // (multiline) so a future formatting tweak (`: ` instead of `— `,
+      // newline-only, etc.) does not silently drop topic pages from the
+      // monthly synthesis. Also accepts the date appearing at the end of
+      // the header line.
+      const dateRe = new RegExp(`^## (?:${dates.map(escapeRegex).join('|')})\\b`, 'm');
+      const touched = dateRe.test(raw);
       if (touched) out.push({ slug, raw, kind: kind === 'Tickets' ? 'ticket' : 'component' });
     }
   }
@@ -253,7 +296,18 @@ async function reportMonthOrchestrator(opts) {
       const weekDates = datesInWeek(weekStr);
       const hasAnyDaily = await anyDailyExists(weekDates);
       if (!hasAnyDaily) continue; // MONTH-04: graceful skip on weeks with zero dailies
-      await reportWeekOrchestrator({ week: weekStr, internal: true });
+      try {
+        await reportWeekOrchestrator({ week: weekStr, internal: true });
+      } catch (err) {
+        // The hasClaudeCli() pre-check above guards binary-presence, but
+        // claude -p itself can still fail mid-loop (network blip, model
+        // error, OOM, killed). Without this catch the rejection bubbles
+        // through cli.js's parseAsync and exits 1, leaving any weekly
+        // reports written so far on disk — exactly the partial-state
+        // outcome the comment block above the gate disclaims. Log and
+        // continue so the monthly run remains best-effort.
+        process.stderr.write(`warn: backfill failed for ${weekStr}: ${err.message}\n`);
+      }
     }
     // Re-load — the loop just wrote new files for some weeks; the
     // downstream buildMonthlyPrompt MUST see the post-backfill state.
@@ -308,7 +362,7 @@ async function reportMonthOrchestrator(opts) {
   process.stderr.write(`synthesizing ${month}…\n`);
   const body = await claudeHeadless(prompt);
 
-  const outPath = opts.out || getReportFilePath(month);
+  const outPath = resolveOutPath(opts.out, getReportFilePath(month));
   await ensureParentDir(outPath);
 
   // D-13: always overwrite, prepending a regenerated marker on
@@ -332,13 +386,14 @@ async function reportMonthOrchestrator(opts) {
 async function buildMonthlyPrompt({ month, metrics, weeklies, missingWeeks, topicPages, priorReport, partialNote }) {
   const promptHeader = await readFile(MONTHLY_PROMPT_PATH, 'utf8');
 
-  const sourceParts = [];
-  if (weeklies.length > 0) {
-    sourceParts.push(weeklies.map((w) => `\`Reports/${w.weekStr}.md\``).join(', '));
-  } else {
-    sourceParts.push('(no weekly reports present)');
-  }
-  let sourcesLine = `Sources: ${sourceParts.join('')}.`;
+  // Build the Sources line as a sequence of independent clauses. The
+  // earlier sourceParts.join('') was a no-op on a single-element array;
+  // straight string concatenation here is clearer and matches reader
+  // intent (one clause per data category).
+  const sourcesHead = weeklies.length > 0
+    ? `Sources: ${weeklies.map((w) => `\`Reports/${w.weekStr}.md\``).join(', ')}.`
+    : 'Sources: (no weekly reports present).';
+  let sourcesLine = sourcesHead;
   if (missingWeeks.length > 0) {
     sourcesLine += ` Missing weeks: ${missingWeeks.join(', ')}.`;
   }
