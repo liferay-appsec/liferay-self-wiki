@@ -1,6 +1,6 @@
 import { readFile, writeFile, access, readdir } from 'fs/promises';
 import { fileURLToPath } from 'url';
-import { dirname, join, resolve } from 'path';
+import { dirname, join, resolve, sep } from 'path';
 import { applyUserConfig, ensureVaultConfigured, readVaultConfig } from '../core/config.js';
 import { buildMetrics } from '../core/metrics.js';
 import { isoWeek, datesInWeek, priorIsoWeek, datesInMonth, priorMonth, weeksInMonth } from '../utils/format.js';
@@ -13,6 +13,22 @@ function isWeekday(dateStr) {
   const [y, m, d] = dateStr.split('-').map((s) => parseInt(s, 10));
   const day = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
   return day >= 1 && day <= 5;
+}
+
+// Resolve a user-supplied --out path against the vault root. CLAUDE.md's
+// "don't write to topic pages outside src/core/topics.js" rule is at risk
+// when --out points into Tickets/ or Components/, and a path like
+// /etc/passwd would silently overwrite arbitrary files. Warn loudly when
+// the resolved target is outside the vault, but do not block (the user
+// may legitimately want to dump a report to /tmp for inspection).
+function resolveOutPath(rawOut, defaultPath) {
+  if (!rawOut) return defaultPath;
+  const resolved = resolve(rawOut);
+  const vaultPrefix = resolve(getVaultPath()) + sep;
+  if (!resolved.startsWith(vaultPrefix)) {
+    process.stderr.write(`warn: --out path is outside the vault: ${resolved}\n`);
+  }
+  return resolved;
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -102,7 +118,7 @@ async function reportWeekOrchestrator(opts) {
   process.stderr.write(`${internal ? 'backfilling' : 'synthesizing'} ${week}…\n`);
   const body = await claudeHeadless(prompt);
 
-  const outPath = opts.out || getReportFilePath(week);
+  const outPath = resolveOutPath(opts.out, getReportFilePath(week));
   await ensureParentDir(outPath);
   await writeFile(outPath, body.endsWith('\n') ? body : body + '\n', 'utf8');
   if (!internal) {
@@ -346,7 +362,7 @@ async function reportMonthOrchestrator(opts) {
   process.stderr.write(`synthesizing ${month}…\n`);
   const body = await claudeHeadless(prompt);
 
-  const outPath = opts.out || getReportFilePath(month);
+  const outPath = resolveOutPath(opts.out, getReportFilePath(month));
   await ensureParentDir(outPath);
 
   // D-13: always overwrite, prepending a regenerated marker on
