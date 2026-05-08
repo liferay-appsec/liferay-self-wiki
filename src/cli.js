@@ -84,8 +84,9 @@ program
 
 program
   .command('report')
-  .description('Generate a weekly report from daily logs.')
+  .description('Generate a weekly or monthly report from daily logs.')
   .option('-w, --week <YYYY-Www>', 'ISO week to synthesize (default: current week)')
+  .option('-m, --month [YYYY-MM]', 'calendar month to synthesize (default: current month when flag is passed without a value)')
   .option('--dry-run', 'print prompt instead of invoking claude -p')
   .option('-o, --out <path>', 'override output path')
   .action(reportCommand);
