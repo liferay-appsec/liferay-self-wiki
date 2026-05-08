@@ -6,6 +6,7 @@ import { buildMetrics } from '../core/metrics.js';
 import { isoWeek, datesInWeek, priorIsoWeek, datesInMonth, priorMonth, weeksInMonth } from '../utils/format.js';
 import { getDailyFilePath, getReportFilePath, getVaultPath, ensureParentDir } from '../utils/paths.js';
 import { claudeHeadless, hasClaudeCli } from '../core/claude.js';
+import { escapeRegex } from '../utils/regex.js';
 
 function isWeekday(dateStr) {
   // dateStr is YYYY-MM-DD; parse as UTC to keep day-of-week stable across tz.
@@ -224,9 +225,15 @@ async function loadInMonthTopicPages(monthStr) {
         continue;
       }
       // A topic page is "touched in-month" when at least one of the in-month
-      // YYYY-MM-DD strings appears under a `## ` section header (the
-      // convention used by src/core/topics.js#appendDatedSection).
-      const touched = dates.some((d) => raw.includes(`## ${d} `));
+      // YYYY-MM-DD strings appears under a `## ` section header. The
+      // current convention in src/core/topics.js#appendDatedSection is
+      // `## ${dateStr} — Session ${n}`, but we anchor on `^## <date>\b`
+      // (multiline) so a future formatting tweak (`: ` instead of `— `,
+      // newline-only, etc.) does not silently drop topic pages from the
+      // monthly synthesis. Also accepts the date appearing at the end of
+      // the header line.
+      const dateRe = new RegExp(`^## (?:${dates.map(escapeRegex).join('|')})\\b`, 'm');
+      const touched = dateRe.test(raw);
       if (touched) out.push({ slug, raw, kind: kind === 'Tickets' ? 'ticket' : 'component' });
     }
   }
