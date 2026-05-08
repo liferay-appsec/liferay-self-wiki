@@ -28,7 +28,7 @@ before(async () => {
 
 ## Session 2 — Task: LPD-99913 — wiki cleanup
 - Started: 10:30
-- Note [11:00]: closed pull/9999, touched src/commands/report.js
+- Note [11:00]: closed pull #9999, touched src/commands/report.js
 - Ended: 11:30
 - Duration: 60 min
 - Completed: ✅
