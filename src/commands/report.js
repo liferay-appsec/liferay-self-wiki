@@ -111,13 +111,19 @@ async function reportWeekOrchestrator(opts) {
 }
 
 // Used by the auto-backfill loop to skip ISO weeks whose constituent dates
-// have no daily log on disk (MONTH-04 graceful degradation).
+// have no daily log on disk (MONTH-04 graceful degradation). Only ENOENT
+// is treated as "no daily for this date" — other errors (permission,
+// I/O) are surfaced rather than silently masked, which previously could
+// cause monthly synthesis to skip weeks the user simply could not read.
 async function anyDailyExists(dates) {
   for (const d of dates) {
     try {
       await access(getDailyFilePath(d));
       return true;
-    } catch { /* keep checking */ }
+    } catch (err) {
+      if (err.code !== 'ENOENT') throw err;
+      // ENOENT — keep checking the next date.
+    }
   }
   return false;
 }
