@@ -14,7 +14,13 @@ export function formatDuration(minutes) {
 }
 
 export function isoWeek(date = new Date()) {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  // Read components via getUTC* so callers passing a UTC-anchored Date
+  // (e.g. weeksInMonth's `new Date('YYYY-MM-DDT00:00:00Z')`) do not have
+  // their calendar date shifted by a negative-offset local TZ before the
+  // ISO week math runs. Mixing local-tz reads with UTC arithmetic was the
+  // long-standing W52 ↔ W53 boundary bug that priorIsoWeek has its own
+  // workaround for.
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
   const dayNum = d.getUTCDay() || 7;
   d.setUTCDate(d.getUTCDate() + 4 - dayNum);
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
