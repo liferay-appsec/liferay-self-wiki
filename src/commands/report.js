@@ -357,13 +357,14 @@ async function reportMonthOrchestrator(opts) {
 async function buildMonthlyPrompt({ month, metrics, weeklies, missingWeeks, topicPages, priorReport, partialNote }) {
   const promptHeader = await readFile(MONTHLY_PROMPT_PATH, 'utf8');
 
-  const sourceParts = [];
-  if (weeklies.length > 0) {
-    sourceParts.push(weeklies.map((w) => `\`Reports/${w.weekStr}.md\``).join(', '));
-  } else {
-    sourceParts.push('(no weekly reports present)');
-  }
-  let sourcesLine = `Sources: ${sourceParts.join('')}.`;
+  // Build the Sources line as a sequence of independent clauses. The
+  // earlier sourceParts.join('') was a no-op on a single-element array;
+  // straight string concatenation here is clearer and matches reader
+  // intent (one clause per data category).
+  const sourcesHead = weeklies.length > 0
+    ? `Sources: ${weeklies.map((w) => `\`Reports/${w.weekStr}.md\``).join(', ')}.`
+    : 'Sources: (no weekly reports present).';
+  let sourcesLine = sourcesHead;
   if (missingWeeks.length > 0) {
     sourcesLine += ` Missing weeks: ${missingWeeks.join(', ')}.`;
   }
