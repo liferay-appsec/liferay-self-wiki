@@ -35,7 +35,16 @@ export async function reportCommand(opts = {}) {
   return reportWeekOrchestrator(opts);
 }
 
+// `internal: true` is set by reportMonthOrchestrator's auto-backfill loop.
+// In that mode:
+//   - the stderr progress line is rephrased "backfilling <week>…" so a
+//     multi-week run reads coherently to the user;
+//   - the `wrote <path>` stdout line is suppressed (the monthly orchestrator
+//     owns the user-visible summary);
+//   - hasClaudeCli() is NOT re-checked here — the caller gated upstream so a
+//     mid-loop crash on missing claude can never leave partial state.
 async function reportWeekOrchestrator(opts) {
+  const internal = opts.internal === true;
   const week = opts.week || isoWeek();
   const dates = datesInWeek(week);
   const present = [];
@@ -68,18 +77,34 @@ async function reportWeekOrchestrator(opts) {
     return;
   }
 
-  if (!(await hasClaudeCli())) {
+  // Standalone weekly path keeps its soft-fail to dry-run on missing claude.
+  // The monthly backfill caller gates upstream, so we skip this check then.
+  if (!internal && !(await hasClaudeCli())) {
     process.stderr.write('error: `claude` CLI not found on PATH. Install Claude Code or run with --dry-run to print the prompt.\n');
     process.exit(2);
   }
 
-  process.stderr.write(`synthesizing ${week}…\n`);
+  process.stderr.write(`${internal ? 'backfilling' : 'synthesizing'} ${week}…\n`);
   const body = await claudeHeadless(prompt);
 
   const outPath = opts.out || getReportFilePath(week);
   await ensureParentDir(outPath);
   await writeFile(outPath, body.endsWith('\n') ? body : body + '\n', 'utf8');
-  process.stdout.write(`wrote ${outPath}\n`);
+  if (!internal) {
+    process.stdout.write(`wrote ${outPath}\n`);
+  }
+}
+
+// Used by the auto-backfill loop to skip ISO weeks whose constituent dates
+// have no daily log on disk (MONTH-04 graceful degradation).
+async function anyDailyExists(dates) {
+  for (const d of dates) {
+    try {
+      await access(getDailyFilePath(d));
+      return true;
+    } catch { /* keep checking */ }
+  }
+  return false;
 }
 
 async function loadPriorReport(week) {
@@ -200,14 +225,47 @@ async function reportMonthOrchestrator(opts) {
   const weeks = weeksInMonth(month);
 
   // Load existing weeklies; track missing.
-  const presentWeeks = [];
-  const missingWeeks = [];
+  // `let`-bound (not const) so the auto-backfill phase below can re-load
+  // post-backfill state into the same names — the downstream prompt-build
+  // call must see the up-to-date arrays.
+  let presentWeeks = [];
+  let missingWeeks = [];
   for (const weekStr of weeks) {
     try {
       const raw = await readFile(getReportFilePath(weekStr), 'utf8');
       presentWeeks.push({ weekStr, raw });
     } catch {
       missingWeeks.push(weekStr);
+    }
+  }
+
+  // D-02 / D-03: auto-backfill missing weeklies before synthesizing the
+  // month. Skip when --dry-run (per CONTEXT.md <specifics>: dry-run prints
+  // the monthly prompt only, never silently invokes weekly synthesis).
+  // Gate the entire loop behind a single hasClaudeCli check so a mid-loop
+  // crash on missing `claude` cannot leave partial state in the vault.
+  if (!opts.dryRun && missingWeeks.length > 0) {
+    if (!(await hasClaudeCli())) {
+      process.stderr.write('error: `claude` CLI not found on PATH. Install Claude Code or run with --dry-run to print the prompt.\n');
+      process.exit(2);
+    }
+    for (const weekStr of missingWeeks) {
+      const weekDates = datesInWeek(weekStr);
+      const hasAnyDaily = await anyDailyExists(weekDates);
+      if (!hasAnyDaily) continue; // MONTH-04: graceful skip on weeks with zero dailies
+      await reportWeekOrchestrator({ week: weekStr, internal: true });
+    }
+    // Re-load — the loop just wrote new files for some weeks; the
+    // downstream buildMonthlyPrompt MUST see the post-backfill state.
+    presentWeeks = [];
+    missingWeeks = [];
+    for (const weekStr of weeks) {
+      try {
+        const raw = await readFile(getReportFilePath(weekStr), 'utf8');
+        presentWeeks.push({ weekStr, raw });
+      } catch {
+        missingWeeks.push(weekStr);
+      }
     }
   }
 

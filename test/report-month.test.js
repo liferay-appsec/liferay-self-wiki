@@ -217,3 +217,106 @@ test('regenerated-marker code path exists in source (D-13 grep guardrail)', () =
   assert.match(src, /<!-- regenerated /);
   assert.match(src, /access\(outPath\)/);
 });
+
+// ---- Plan 02-03 RED: backfill structure must exist in source ----
+
+test('Plan 02-03 RED — auto-backfill phase wired into reportMonthOrchestrator', () => {
+  // RED gate: assert the structural pieces auto-backfill needs.
+  // Implementation in Task 1 GREEN will introduce these.
+  const src = readFileSync(new URL('../src/commands/report.js', import.meta.url).pathname, 'utf8');
+  // The dedicated backfill stderr line distinct from the "synthesizing" weekly line.
+  assert.match(src, /backfilling/);
+  // The empty-week graceful-skip helper.
+  assert.match(src, /async function anyDailyExists/);
+  // The backfill loop iterating missingWeeks.
+  assert.match(src, /for \(const weekStr of missingWeeks\)/);
+  // Dry-run gate on the backfill block — must explicitly check !opts.dryRun.
+  assert.match(src, /!opts\.dryRun && missingWeeks\.length > 0/);
+  // Re-load arrays after backfill (the empty-array reset before reloading).
+  assert.match(src, /presentWeeks = \[\]/);
+  // The internal flag plumbing on reportWeekOrchestrator's signature.
+  assert.match(src, /internal/);
+});
+
+// ---- Plan 02-03 backfill behavior tests ----
+
+test('--dry-run does NOT backfill missing weeklies (CONTEXT.md <specifics>)', () => {
+  // Pre-condition: W18 (and W16/W17) weekly reports do not exist.
+  // The fixture from `before` only writes W14 and W15.
+  ['2026-W16', '2026-W17', '2026-W18'].forEach((w) => {
+    const p = join(vault, 'Reports', `${w}.md`);
+    if (existsSync(p)) unlinkSync(p);
+  });
+
+  const r = runCli(['--month', '2026-04', '--dry-run']);
+  assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+
+  // Dry-run must NOT have created any new weekly file (D-15: dry-run
+  // never silently invokes weekly synthesis).
+  assert.equal(existsSync(join(vault, 'Reports', '2026-W18.md')), false);
+  assert.equal(existsSync(join(vault, 'Reports', '2026-W17.md')), false);
+  assert.equal(existsSync(join(vault, 'Reports', '2026-W16.md')), false);
+
+  // Sources line still flags them as missing.
+  assert.match(r.stdout, /Missing weeks: .*2026-W18/);
+});
+
+test('Without --dry-run, missing `claude` exits 2 before any backfill (no partial state)', () => {
+  // Sanity: ensure no spurious weekly files exist from prior tests.
+  ['2026-W16', '2026-W17', '2026-W18'].forEach((w) => {
+    const p = join(vault, 'Reports', `${w}.md`);
+    if (existsSync(p)) unlinkSync(p);
+  });
+
+  // Run with PATH stripped — `claude --version` will fail, so
+  // hasClaudeCli() returns false and the orchestrator must exit 2
+  // BEFORE entering the backfill loop. Use process.execPath (absolute
+  // node binary) so the spawned-process step does not itself depend on
+  // a PATH lookup; only the inner `claude` lookup is affected.
+  const r = spawnSync(process.execPath, [CLI_ENTRY, 'report', '--month', '2026-04'], {
+    env: {
+      ...process.env,
+      PATH: '/nonexistent',
+      XDG_DATA_HOME: process.env.XDG_DATA_HOME,
+      XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+    },
+    encoding: 'utf8',
+  });
+  assert.equal(r.status, 2, `stderr: ${r.stderr}`);
+  assert.match(r.stderr, /claude.* CLI not found on PATH/);
+
+  // No partial state — no weekly was synthesized despite W18 having dailies on 2026-04-15.
+  assert.equal(existsSync(join(vault, 'Reports', '2026-W18.md')), false);
+  assert.equal(existsSync(join(vault, 'Reports', '2026-W17.md')), false);
+  assert.equal(existsSync(join(vault, 'Reports', '2026-W16.md')), false);
+  // The monthly file was also not produced.
+  assert.equal(existsSync(join(vault, 'Reports', '2026-04.md')), false);
+});
+
+test('Backfill source contains the empty-week graceful-skip guard (MONTH-04)', () => {
+  const src = readFileSync(new URL('../src/commands/report.js', import.meta.url).pathname, 'utf8');
+  // The short-circuit helper must exist.
+  assert.match(src, /async function anyDailyExists/);
+  // The backfill loop must consult it.
+  assert.match(src, /hasAnyDaily/);
+  // The continue branch must exist (graceful skip rather than error).
+  assert.match(src, /if \(!hasAnyDaily\) continue/);
+  // The hasClaudeCli pre-check must precede the loop.
+  assert.match(src, /hasClaudeCli/);
+});
+
+test('Dry-run on a month with zero dailies completes cleanly without writes', () => {
+  // 2025-07 — no fixture writes for it. All overlapping weeks are missing.
+  ['2025-W27', '2025-W28', '2025-W29', '2025-W30', '2025-W31'].forEach((w) => {
+    const p = join(vault, 'Reports', `${w}.md`);
+    if (existsSync(p)) unlinkSync(p);
+  });
+
+  const r = runCli(['--month', '2025-07', '--dry-run']);
+  assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+  assert.match(r.stdout, /MONTH: 2025-07/);
+  // Every overlapping week should be flagged missing.
+  assert.match(r.stdout, /Missing weeks:/);
+  // No monthly file was written by the dry-run.
+  assert.equal(existsSync(join(vault, 'Reports', '2025-07.md')), false);
+});
