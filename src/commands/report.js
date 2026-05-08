@@ -53,11 +53,16 @@ async function reportWeekOrchestrator(opts) {
 
   for (const dateStr of dates) {
     try {
-      await access(getDailyFilePath(dateStr));
+      // Single read — readFile is the only point of truth for "present".
+      // The previous access()+readFile pair created a TOCTOU window and
+      // also mis-classified non-ENOENT errors (perm flap, I/O) as
+      // "missing"; here we let unexpected errors surface and only treat
+      // ENOENT as "no daily for this date".
       const raw = await readFile(getDailyFilePath(dateStr), 'utf8');
       present.push(dateStr);
       dailies.push({ dateStr, raw });
-    } catch {
+    } catch (err) {
+      if (err.code !== 'ENOENT') throw err;
       // Only flag weekdays without logs as "missing"; weekend gaps are noise.
       if (isWeekday(dateStr)) missing.push(dateStr);
     }
