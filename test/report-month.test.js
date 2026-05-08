@@ -217,3 +217,23 @@ test('regenerated-marker code path exists in source (D-13 grep guardrail)', () =
   assert.match(src, /<!-- regenerated /);
   assert.match(src, /access\(outPath\)/);
 });
+
+// ---- Plan 02-03 RED: backfill structure must exist in source ----
+
+test('Plan 02-03 RED — auto-backfill phase wired into reportMonthOrchestrator', () => {
+  // RED gate: assert the structural pieces auto-backfill needs.
+  // Implementation in Task 1 GREEN will introduce these.
+  const src = readFileSync(new URL('../src/commands/report.js', import.meta.url).pathname, 'utf8');
+  // The dedicated backfill stderr line distinct from the "synthesizing" weekly line.
+  assert.match(src, /backfilling/);
+  // The empty-week graceful-skip helper.
+  assert.match(src, /async function anyDailyExists/);
+  // The backfill loop iterating missingWeeks.
+  assert.match(src, /for \(const weekStr of missingWeeks\)/);
+  // Dry-run gate on the backfill block — must explicitly check !opts.dryRun.
+  assert.match(src, /!opts\.dryRun && missingWeeks\.length > 0/);
+  // Re-load arrays after backfill (the empty-array reset before reloading).
+  assert.match(src, /presentWeeks = \[\]/);
+  // The internal flag plumbing on reportWeekOrchestrator's signature.
+  assert.match(src, /internal/);
+});
