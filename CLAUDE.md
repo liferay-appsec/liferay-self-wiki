@@ -63,13 +63,14 @@ src/
 - **Don't write to topic pages outside `src/core/topics.js`.** The append-or-merge logic for dated sections has subtle invariants (idempotent re-runs, section markers).
 - **Don't invent content in the weekly-report prompt.** The synthesis is constrained to evidence in the daily logs. If you change the prompt, preserve the "no invention" rule.
 - **Never call `self-wiki session open` from inside the skill.** That's a hook's job. The skill calls `note`, `status`, and `session switch` only.
+- **Never call `self-wiki init <tmp-vault>` without `--no-set-default` from a harness or sub-agent.** Plain `init` writes `vaultPath` into `~/.config/self-wiki/config.json` — fine for the user-facing flow, lethal in an acceptance harness because it points the user's hooks at the tmp dir for the rest of the session. `--no-set-default` scaffolds the vault but leaves user config alone. Phase 1's verifier hit this and broke the daily-log session sentinel.
 
 ## Testing locally
 
 There is no test suite yet (v0.1). Verify by:
 
 1. `npm link` in this directory.
-2. `self-wiki init /tmp/test-vault --yes` — vault scaffolds, skill installs, hooks merge.
+2. `self-wiki init /tmp/test-vault --yes --no-set-default` — vault scaffolds, skill installs, hooks merge. **Always pass `--no-set-default` for tmp/test vaults** — without it, `init` rewrites `~/.config/self-wiki/config.json#vaultPath` globally and breaks the user's real-vault session lifecycle (this bit Phase 1's acceptance harness).
 3. `self-wiki session open --cwd /some/git/repo` then `self-wiki status` — should report active.
 4. `self-wiki note "test note"` — appends to today's `Daily/<date>.md`.
 5. `self-wiki session close --hard` — closes block, folds into `Tickets/<id>.md` if branch had a ticket.

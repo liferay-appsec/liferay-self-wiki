@@ -28,6 +28,8 @@ Examples: `~/notes`, `~/Documents/work-vault`, `/data/obsidian/personal`. Re-run
 4. Proposes `permissions.allow` additions for `~/.claude/settings.json` so Claude Code can run `self-wiki note` / `status` / `session switch` without the auto-mode classifier blocking them when the `wiki` skill isn't loaded.
 5. Records the vault path in `~/.config/self-wiki/config.json`.
 
+Pass `--no-set-default` to skip step 5 — the vault scaffolds and the seed lands, but the user-config vault path is left alone. Useful for tmp/test vaults and acceptance harnesses where you don't want `init` to repoint the user's daily session lifecycle at a throwaway directory.
+
 ## What you get
 
 Inside the vault directory you chose, `init` creates:
