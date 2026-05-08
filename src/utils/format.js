@@ -69,6 +69,50 @@ export function datesInWeek(weekStr) {
   return dates;
 }
 
+function parseYYYYMM(monthStr) {
+  const m = typeof monthStr === 'string' ? monthStr.match(/^(\d{4})-(\d{2})$/) : null;
+  if (!m) throw new Error(`Invalid YYYY-MM: ${monthStr}`);
+  const year = parseInt(m[1], 10);
+  const month = parseInt(m[2], 10);
+  if (month < 1 || month > 12) throw new Error(`Invalid YYYY-MM: ${monthStr}`);
+  return { year, month };
+}
+
+export function datesInMonth(monthStr) {
+  const { year, month } = parseYYYYMM(monthStr);
+  // Day 0 of (month + 1, 1-indexed) === last day of `month`. JS Date.UTC's
+  // monthIdx is 0-indexed, so passing `month` (the 1-indexed human month)
+  // already refers to the *next* month; day 0 of next month yields the
+  // last day of the requested month.
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const dates = [];
+  for (let i = 1; i <= lastDay; i++) {
+    dates.push(`${year}-${String(month).padStart(2, '0')}-${String(i).padStart(2, '0')}`);
+  }
+  return dates;
+}
+
+export function priorMonth(monthStr) {
+  const { year, month } = parseYYYYMM(monthStr);
+  if (month === 1) return `${year - 1}-12`;
+  return `${year}-${String(month - 1).padStart(2, '0')}`;
+}
+
+export function weeksInMonth(monthStr) {
+  const dates = datesInMonth(monthStr);
+  const seen = new Set();
+  const weeks = [];
+  for (const dateStr of dates) {
+    const d = new Date(`${dateStr}T00:00:00Z`);
+    const week = isoWeek(d);
+    if (!seen.has(week)) {
+      seen.add(week);
+      weeks.push(week);
+    }
+  }
+  return weeks;
+}
+
 export function diffMinutes(startedAtIso, endedAt = new Date()) {
   const start = new Date(startedAtIso);
   const end = endedAt instanceof Date ? endedAt : new Date(endedAt);
