@@ -39,11 +39,14 @@ export async function buildMetrics(dates, opts = {}) {
       }
     }
     const text = parsed.sessions.flatMap((s) => s.notes.map((n) => n.text)).join('\n');
-    // Tighter PR regex: 2–7 digits (covers any realistic PR number through
-    // ~9.9M; large monorepos and active OSS projects routinely exceed 5
-    // digits — Liferay's portal in particular). Lower bound of 2 keeps
-    // single-digit `#5` noise out of the metrics block.
-    const prMatches = text.match(/(?:\b(?:PR|pull)\s*#?|#)(\d{2,7})\b/gi) ?? [];
+    // PR regex: 2–7 digits, MUST be preceded by `PR` or `pull`. Dropping
+    // the bare `#NNN` branch is deliberate — GitHub displays issues as
+    // `#N` too, and conflating issue refs with PR refs inflated the
+    // "PRs touched" line. The deterministic-metrics rule (CLAUDE.md) and
+    // the prompt's "Use as-is" directive make accuracy here load-bearing.
+    // Lower bound of 2 keeps single-digit `PR #5` noise out; upper bound
+    // of 7 covers any realistic PR number through ~9.9M.
+    const prMatches = text.match(/\b(?:PR|pull)\s*#?(\d{2,7})\b/gi) ?? [];
     for (const m of prMatches) prSet.add('#' + m.match(/\d+/)[0]);
     forcePushes += (text.match(/force[ -]?push/gi) ?? []).length;
   }
