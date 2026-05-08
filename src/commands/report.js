@@ -2,8 +2,8 @@ import { readFile, writeFile, access } from 'fs/promises';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
 import { applyUserConfig, ensureVaultConfigured } from '../core/config.js';
+import { buildMetrics } from '../core/metrics.js';
 import { isoWeek, datesInWeek, priorIsoWeek } from '../utils/format.js';
-import { parseDailyFile } from '../utils/log-parser.js';
 import { getDailyFilePath, getReportFilePath, ensureParentDir } from '../utils/paths.js';
 import { claudeHeadless, hasClaudeCli } from '../core/claude.js';
 
@@ -44,7 +44,7 @@ export async function reportCommand(opts = {}) {
     process.exit(1);
   }
 
-  const metrics = await buildMetrics(present);
+  const metrics = await buildMetrics(present, { shape: 'week' });
   const priorReport = await loadPriorReport(week);
   const prompt = await buildPrompt({ week, metrics, dailies, present, missing, priorReport });
 
@@ -65,44 +65,6 @@ export async function reportCommand(opts = {}) {
   await ensureParentDir(outPath);
   await writeFile(outPath, body.endsWith('\n') ? body : body + '\n', 'utf8');
   process.stdout.write(`wrote ${outPath}\n`);
-}
-
-async function buildMetrics(dates) {
-  const prSet = new Set();
-  const tickets = new Set();
-  const status = { completed: 0, interrupted: 0, open: 0, unknown: 0 };
-  let totalSessions = 0;
-  let daysWithLogs = 0;
-  let forcePushes = 0;
-  for (const dateStr of dates) {
-    const parsed = await parseDailyFile(dateStr);
-    if (parsed.sessions.length > 0) daysWithLogs += 1;
-    totalSessions += parsed.sessions.length;
-    for (const s of parsed.sessions) {
-      if (s.ticketId) tickets.add(s.ticketId);
-      status[s.status in status ? s.status : 'unknown'] += 1;
-    }
-    const text = parsed.sessions.flatMap((s) => s.notes.map((n) => n.text)).join('\n');
-    // Tighter PR regex: 2–5 digits, must be preceded by `PR`/`pull` or `#`.
-    const prMatches = text.match(/(?:\b(?:PR|pull)\s*#?|#)(\d{2,5})\b/gi) ?? [];
-    for (const m of prMatches) prSet.add('#' + m.match(/\d+/)[0]);
-    forcePushes += (text.match(/force[ -]?push/gi) ?? []).length;
-  }
-  const statusBits = [];
-  if (status.completed) statusBits.push(`${status.completed} completed`);
-  if (status.interrupted) statusBits.push(`${status.interrupted} interrupted`);
-  if (status.open) statusBits.push(`${status.open} open`);
-  if (status.unknown) statusBits.push(`${status.unknown} unknown`);
-  const sortedPrs = [...prSet].sort((a, b) => parseInt(a.slice(1), 10) - parseInt(b.slice(1), 10));
-  const sortedTickets = [...tickets].sort();
-  const lines = [];
-  lines.push(
-    `- **Sessions:** ${totalSessions} total${statusBits.length > 0 ? ` (${statusBits.join(', ')})` : ''}. Days with logs: ${daysWithLogs}.`,
-  );
-  lines.push(`- **Tickets touched:** ${sortedTickets.length > 0 ? sortedTickets.join(', ') : '—'}.`);
-  lines.push(`- **PRs touched:** ${sortedPrs.length > 0 ? sortedPrs.join(', ') : '—'}.`);
-  lines.push(`- **Force-push mentions:** ${forcePushes}.`);
-  return lines.join('\n');
 }
 
 async function loadPriorReport(week) {
