@@ -39,8 +39,11 @@ export async function buildMetrics(dates, opts = {}) {
       }
     }
     const text = parsed.sessions.flatMap((s) => s.notes.map((n) => n.text)).join('\n');
-    // Tighter PR regex: 2–5 digits, must be preceded by `PR`/`pull` or `#`.
-    const prMatches = text.match(/(?:\b(?:PR|pull)\s*#?|#)(\d{2,5})\b/gi) ?? [];
+    // Tighter PR regex: 2–7 digits (covers any realistic PR number through
+    // ~9.9M; large monorepos and active OSS projects routinely exceed 5
+    // digits — Liferay's portal in particular). Lower bound of 2 keeps
+    // single-digit `#5` noise out of the metrics block.
+    const prMatches = text.match(/(?:\b(?:PR|pull)\s*#?|#)(\d{2,7})\b/gi) ?? [];
     for (const m of prMatches) prSet.add('#' + m.match(/\d+/)[0]);
     forcePushes += (text.match(/force[ -]?push/gi) ?? []).length;
   }
