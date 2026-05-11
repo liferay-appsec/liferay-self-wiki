@@ -8,7 +8,9 @@
       "Bash(self-wiki session switch)",
       "Bash(self-wiki session switch *)",
       "Bash(self-wiki close-orphans)",
-      "Bash(self-wiki close-orphans *)"
+      "Bash(self-wiki close-orphans *)",
+      "Bash(self-wiki self-review)",
+      "Bash(self-wiki self-review *)"
     ]
   }
 }
