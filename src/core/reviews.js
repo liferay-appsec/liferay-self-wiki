@@ -18,7 +18,7 @@
 //   - buildSelfReviewPrompt — REVIEW-06 + D-08 + D-13 (prompt envelope)
 // plus SELF_REVIEW_PROMPT_PATH alongside MONTHLY_PROMPT_PATH / WEEKLY_PROMPT_PATH.
 
-import { mkdir, readFile, readdir, writeFile, access } from 'fs/promises';
+import { mkdir, readFile, readdir, writeFile, access, open, unlink } from 'fs/promises';
 import { dirname, join, resolve, sep } from 'path';
 import { fileURLToPath } from 'url';
 import { resolveCycle } from './cycles.js';
@@ -399,10 +399,20 @@ export async function buildSelfReviewPrompt(args) {
 // Resolve a user-supplied --out path against the vault root. Mirrors the
 // report.js#resolveOutPath helper. The CLI may legitimately want to dump a
 // review draft to /tmp for inspection; warn loudly but do not block.
+// WR-06: reject the vault-root sub-case outright — the prefix-startsWith
+// check used to fire the "outside the vault" warning for `--out <vaultRoot>`
+// (because vaultRoot does not end in `sep`), then return the resolved path,
+// and the subsequent writeFile would fail with EISDIR (vaultRoot is a
+// directory). Refuse explicitly with a clear error instead.
 function resolveOutPath(rawOut, defaultPath) {
   if (!rawOut) return defaultPath;
   const r = resolve(rawOut);
-  const vaultPrefix = resolve(getVaultPath()) + sep;
+  const vaultRoot = resolve(getVaultPath());
+  const vaultPrefix = vaultRoot + sep;
+  if (r === vaultRoot) {
+    process.stderr.write(`error: --out cannot be the vault root: ${r}\n`);
+    process.exit(1);
+  }
   if (!r.startsWith(vaultPrefix)) {
     process.stderr.write(`warn: --out path is outside the vault: ${r}\n`);
   }
@@ -482,10 +492,18 @@ export async function selfReviewOrchestrator(opts = {}) {
   // 2. Out path (D-13 — --out symmetry with monthly).
   const defaultOut = getReviewFilePath(window.cycleName);
   const outPath = resolveOutPath(opts.out, defaultOut);
-  await ensureReviewsDir(getVaultPath());
 
   // 3. Refuse-without-force (D-03). Dry-run skips this — there is no write.
+  //    ensureReviewsDir is hoisted INTO this block so --dry-run stays
+  //    side-effect-free on a fresh vault (WR-03 fix). ensureParentDir at the
+  //    actual write site (step 13) still creates the directory in the
+  //    real-write path.
+  //    Note: this is a fast-path UX check — it refuses BEFORE the
+  //    multi-minute cascade so the user does not waste claude calls. The
+  //    actual race-safety guarantee comes from the atomic `writeFile` with
+  //    flag `'wx'` at step 13 (CR-01 fix); both checks must remain.
   if (!opts.dryRun) {
+    await ensureReviewsDir(getVaultPath());
     let exists = false;
     try { await access(outPath); exists = true; } catch { /* fresh */ }
     if (exists && !opts.force) {
@@ -495,6 +513,40 @@ export async function selfReviewOrchestrator(opts = {}) {
       process.exit(1);
     }
   }
+
+  // 3a. Cross-process mutex (WR-01). Acquire a dot-lock at
+  //     <vault>/.self-wiki/self-review-<cycleName>.lock for the duration of
+  //     the cascade so two concurrent runs cannot interleave the multi-minute
+  //     claude synthesis path (a single cascade can spawn ~16 claude -p
+  //     invocations, so a duplicate cascade is genuinely expensive AND
+  //     produces last-write-wins state on Reviews/<cycle>.md +
+  //     writeVaultConfig). The dry-run path takes no lock — it is
+  //     read-only and safe to interleave.
+  //     Lock is held via O_EXCL (`open(path, 'wx')`) — a vanilla stdlib
+  //     primitive; no `proper-lockfile` dependency. Stale lock recovery is
+  //     manual: the stderr message tells the user where the file lives.
+  //     Acquired AFTER refuse-without-force so a refused run does not leave
+  //     a lock file behind (process.exit skips the `finally` cleanup).
+  let lockHandle = null;
+  const lockPath = join(getVaultPath(), '.self-wiki', `self-review-${window.cycleName}.lock`);
+  if (!opts.dryRun) {
+    await mkdir(join(getVaultPath(), '.self-wiki'), { recursive: true });
+    try {
+      lockHandle = await open(lockPath, 'wx');
+      await lockHandle.writeFile(`${process.pid} ${new Date().toISOString()}\n`);
+    } catch (err) {
+      if (err && err.code === 'EEXIST') {
+        process.stderr.write(
+          `error: another self-review run is in progress (lock: ${lockPath}). ` +
+          `If the prior run crashed, remove the lock file and retry.\n`,
+        );
+        process.exit(1);
+      }
+      throw err;
+    }
+  }
+
+  try {
 
   // 4. Load monthlies in-window. Slice 2 adds the auto-backfill cascade
   //    immediately after, gated by a single hoisted hasClaudeCli check.
@@ -561,9 +613,20 @@ export async function selfReviewOrchestrator(opts = {}) {
       manualPath: opts.priorReview,
       cycleEndMonths,
     });
-    const missingNote0 = missingMonths.length > 0
-      ? `Missing monthlies (would be backfilled in non-dry-run): ${missingMonths.join(', ')}.`
-      : null;
+    // WR-04: also surface missing weeklies in the WINDOW_NOTE so the
+    // user sees gaps inside already-present months (e.g. user manually
+    // deleted Reports/2026-W14.md but left Reports/2026-04.md).
+    const missingWeeks0 = weeks0.filter(
+      (w) => !weeklies0.some((wk) => wk.weekStr === w),
+    );
+    const note0Parts = [];
+    if (missingMonths.length > 0) {
+      note0Parts.push(`Missing monthlies (would be backfilled in non-dry-run): ${missingMonths.join(', ')}.`);
+    }
+    if (missingWeeks0.length > 0) {
+      note0Parts.push(`Missing weeklies: ${missingWeeks0.join(', ')}.`);
+    }
+    const missingNote0 = note0Parts.length > 0 ? note0Parts.join(' ') : null;
     const prompt0 = await buildSelfReviewPrompt({
       window,
       monthlies,
@@ -635,17 +698,32 @@ export async function selfReviewOrchestrator(opts = {}) {
     cycleEndMonths,
   });
 
-  // 8. Window note(s) — surface remaining missing monthlies. Under
-  //    slice 2 the cascade fires automatically; this note only appears
-  //    in two cases:
+  // 8. Window note(s) — surface remaining missing monthlies and weeklies.
+  //    Under slice 2 the cascade fires automatically; the monthly note
+  //    appears in two cases:
   //      - dry-run: "would be backfilled in non-dry-run" hint;
   //      - cascade ran but some months failed best-effort: "cascade
   //        attempted but some failed".
-  const missingMonthlyNote = missingMonths.length > 0
-    ? (opts.dryRun
-        ? `Missing monthlies (would be backfilled in non-dry-run): ${missingMonths.join(', ')}.`
-        : `Missing monthlies (cascade attempted but some failed): ${missingMonths.join(', ')}.`)
-    : null;
+  //    WR-04 also surfaces missing in-cycle weeklies (e.g. a weekly
+  //    deleted manually while its containing month is present, or
+  //    reportMonthOrchestrator's weekly cascade failed for some isoweek
+  //    inside a successfully backfilled month). The user gets a signal
+  //    rather than silent coverage gaps. Variable name preserved as
+  //    `missingMonthlyNote` because that is what buildSelfReviewPrompt's
+  //    parameter is called.
+  const missingWeeks = weeks.filter(
+    (w) => !weeklies.some((wk) => wk.weekStr === w),
+  );
+  const noteParts = [];
+  if (missingMonths.length > 0) {
+    noteParts.push(opts.dryRun
+      ? `Missing monthlies (would be backfilled in non-dry-run): ${missingMonths.join(', ')}.`
+      : `Missing monthlies (cascade attempted but some failed): ${missingMonths.join(', ')}.`);
+  }
+  if (missingWeeks.length > 0) {
+    noteParts.push(`Missing weeklies: ${missingWeeks.join(', ')}.`);
+  }
+  const missingMonthlyNote = noteParts.length > 0 ? noteParts.join(' ') : null;
 
   // 9. Build prompt.
   const prompt = await buildSelfReviewPrompt({
@@ -674,19 +752,47 @@ export async function selfReviewOrchestrator(opts = {}) {
   const body = await claudeHeadless(prompt);
   const today = todayISO();
 
-  // 13. Write file. --force was validated earlier; if exists (overwrite path),
-  //     prepend a regenerated marker so the user can see at a glance this
-  //     replaced a prior draft.
+  // 13. Write file atomically (CR-01 fix). The early refuse-without-force
+  //     check at step 3 is a fast-path UX guard; race-safety comes from
+  //     `writeFile` with flag `'wx'` (O_EXCL) here. When `--force` is set,
+  //     use `'w'` to overwrite and prepend a regenerated marker.
+  //
+  //     Between step 3's access() and this write, a concurrent process or
+  //     `cp` could create outPath. Without `'wx'` we would silently
+  //     overwrite. With `'wx'`, EEXIST on a non-force run becomes the
+  //     refuse signal (mirroring the early check's stderr message).
   let exists = false;
   try { await access(outPath); exists = true; } catch { /* fresh */ }
   let finalBody = body;
-  if (exists) {
+  if (opts.force && exists) {
+    // --force overwrite: prepend the regenerated marker so the user can
+    // see at a glance this replaced a prior draft.
     finalBody = `<!-- regenerated ${today} -->\n\n${body}`;
   }
   if (!finalBody.endsWith('\n')) finalBody += '\n';
 
   await ensureParentDir(outPath);
-  await writeFile(outPath, finalBody, 'utf8');
+  try {
+    await writeFile(outPath, finalBody, { flag: opts.force ? 'w' : 'wx', encoding: 'utf8' });
+  } catch (err) {
+    if (err && err.code === 'EEXIST') {
+      // Race: file appeared between step 3 and step 13 (concurrent run,
+      // `cp`, `git restore`, etc.). Refuse rather than silently overwrite.
+      // process.exit skips the `finally` cleanup, so release the lock
+      // explicitly here.
+      if (lockHandle) {
+        await lockHandle.close().catch(() => {});
+        await unlink(lockPath).catch(() => {});
+        lockHandle = null;
+      }
+      process.stderr.write(
+        `error: ${outPath} already exists (raced with a concurrent writer). ` +
+        `Use --force to regenerate (your edits will be lost; recover via 'git restore ${outPath}' if needed).\n`,
+      );
+      process.exit(1);
+    }
+    throw err;
+  }
   process.stdout.write(`wrote ${outPath}\n`);
 
   // 14. Vault-config writeback (REVIEW-07 + D-02). Always — even on --since
@@ -699,4 +805,13 @@ export async function selfReviewOrchestrator(opts = {}) {
       lastReviewedCycle: window.cycleName,
     },
   });
+
+  } finally {
+    // Release the WR-01 dot-lock. The lock is only held in non-dry-run
+    // mode; closing a null handle would throw, so guard both ops.
+    if (lockHandle) {
+      await lockHandle.close().catch(() => {});
+      await unlink(lockPath).catch(() => {});
+    }
+  }
 }
