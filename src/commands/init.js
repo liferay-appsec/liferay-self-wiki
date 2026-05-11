@@ -33,6 +33,21 @@ export async function initCommand(vaultArg, opts = {}) {
         `warning: --hooks-only / --permissions-only / --skill-only ignore the <vault-path> argument (${vaultArg}); skipping vault scaffold.\n`
       );
     }
+    // Reject incoherent --X-only + --no-X combinations explicitly so the
+    // user knows their negation was meaningful. Without this, --no-hooks
+    // would be silently ignored inside --hooks-only.
+    if (opts.hooksOnly && opts.hooks === false) {
+      process.stderr.write('error: --hooks-only cannot be combined with --no-hooks\n');
+      process.exit(2);
+    }
+    if (opts.skillOnly && opts.skill === false) {
+      process.stderr.write('error: --skill-only cannot be combined with --no-skill\n');
+      process.exit(2);
+    }
+    if (opts.permissionsOnly && opts.permissions === false) {
+      process.stderr.write('error: --permissions-only cannot be combined with --no-permissions\n');
+      process.exit(2);
+    }
     if (opts.skillOnly) {
       await installSkill(opts.yes);
     }
