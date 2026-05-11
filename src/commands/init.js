@@ -119,7 +119,7 @@ async function proposeHooks(skipConfirm) {
   process.stdout.write(`  ${chalk.green('✓')} hooks written to ${rel(SETTINGS_DEST)}\n`);
 }
 
-function mergeHooks(current, desired) {
+export function mergeHooks(current, desired) {
   const next = { ...current, hooks: { ...(current.hooks ?? {}) } };
   for (const [event, desiredBlocks] of Object.entries(desired.hooks)) {
     const existing = next.hooks[event] ?? [];
@@ -193,14 +193,14 @@ async function proposePermissions(skipConfirm) {
   process.stdout.write(`  ${chalk.green('✓')} permissions written to ${rel(SETTINGS_DEST)}\n`);
 }
 
-function isSelfWikiBlock(block) {
+export function isSelfWikiBlock(block) {
   if (!block?.hooks) return false;
   return block.hooks.some(
     (h) => typeof h?.command === 'string' && /(?:^|\s)self-wiki\s/.test(h.command),
   );
 }
 
-function describeHookDiff(currentHooks, mergedHooks) {
+export function describeHookDiff(currentHooks, mergedHooks) {
   const lines = [];
   for (const event of Object.keys(mergedHooks)) {
     const before = currentHooks[event] ?? [];
