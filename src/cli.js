@@ -13,6 +13,7 @@ import { Command } from 'commander';
 import { sessionOpen, sessionClose, sessionSwitch } from './commands/session.js';
 import { noteCommand } from './commands/note.js';
 import { statusCommand } from './commands/status.js';
+import { doctorCommand } from './commands/doctor.js';
 import { initCommand } from './commands/init.js';
 import { reportCommand } from './commands/report.js';
 import { rebuildCommand } from './commands/rebuild.js';
@@ -82,6 +83,11 @@ program
   .option('--json', 'machine-readable JSON output')
   .option('--claude-session-id <id>', 'inspect a specific session')
   .action(statusCommand);
+
+program
+  .command('doctor')
+  .description('Diagnose your self-wiki install (Runtime, Vault, Claude Code wiring).')
+  .action(doctorCommand);
 
 program
   .command('report')
