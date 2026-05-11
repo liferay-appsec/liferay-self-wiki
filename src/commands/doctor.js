@@ -188,8 +188,11 @@ async function emitHooksDrift(settings) {
   const merged = mergeHooks(settings, desired);
   const diffs = describeHookDiff(settings.hooks ?? {}, merged.hooks);
   if (diffs.length > 0) {
+    // Drift-line token is the literal 'i hooks:' (single contiguous source
+    // string so README-↔-source grep contract works — Plan 06-03 quotes this
+    // token verbatim in the Troubleshooting table).
     process.stdout.write(
-      '  ' + chalk.dim('i') + ' hooks: ' + diffs.length + ' command(s) differ from template — run `self-wiki init --hooks-only` to refresh\n'
+      '  ' + chalk.dim('i hooks:') + ' ' + diffs.length + ' command(s) differ from template — run `self-wiki init --hooks-only` to refresh\n'
     );
   }
 }
@@ -206,8 +209,11 @@ async function emitPermissionsDrift(settings) {
   const missing = desiredAllow.filter((entry) => !currentAllow.includes(entry));
   if (missing.length > 0) {
     const noun = missing.length === 1 ? 'entry' : 'entries';
+    // Drift-line token is the literal 'i permissions:' (single contiguous
+    // source string so README-↔-source grep contract works — Plan 06-03 quotes
+    // this token verbatim in the Troubleshooting table).
     process.stdout.write(
-      '  ' + chalk.dim('i') + ' permissions: ' + missing.length + ' ' + noun + ' missing — run `self-wiki init --permissions-only` to refresh\n'
+      '  ' + chalk.dim('i permissions:') + ' ' + missing.length + ' ' + noun + ' missing — run `self-wiki init --permissions-only` to refresh\n'
     );
   }
 }
