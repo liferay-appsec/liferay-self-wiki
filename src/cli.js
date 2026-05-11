@@ -36,6 +36,9 @@ program
   .option('--no-hooks', 'skip writing hooks to ~/.claude/settings.json')
   .option('--no-skill', 'skip installing the skill to ~/.claude/skills/wiki/')
   .option('--no-set-default', 'scaffold the vault without persisting it as the default in ~/.config/self-wiki/config.json (use for tmp/test vaults)')
+  .option('--hooks-only', 'merge hooks into ~/.claude/settings.json only; skip vault scaffold, permissions, skill (combinable with --permissions-only / --skill-only)')
+  .option('--permissions-only', 'merge permissions into ~/.claude/settings.json only; skip vault scaffold, hooks, skill (combinable with --hooks-only / --skill-only)')
+  .option('--skill-only', 'install ~/.claude/skills/wiki/SKILL.md only; skip vault scaffold, hooks, permissions (combinable with --hooks-only / --permissions-only)')
   .option('-y, --yes', 'skip confirmation prompts')
   .action(initCommand);
 
