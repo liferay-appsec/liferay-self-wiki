@@ -21,10 +21,19 @@ function isWeekday(dateStr) {
 // /etc/passwd would silently overwrite arbitrary files. Warn loudly when
 // the resolved target is outside the vault, but do not block (the user
 // may legitimately want to dump a report to /tmp for inspection).
+// WR-06: reject the vault-root sub-case outright — `--out <vaultRoot>`
+// used to fire the "outside the vault" warning (vaultRoot doesn't end in
+// `sep`) then return the path, and the subsequent writeFile would fail
+// with EISDIR. Refuse explicitly with a clear error instead.
 function resolveOutPath(rawOut, defaultPath) {
   if (!rawOut) return defaultPath;
   const resolved = resolve(rawOut);
-  const vaultPrefix = resolve(getVaultPath()) + sep;
+  const vaultRoot = resolve(getVaultPath());
+  const vaultPrefix = vaultRoot + sep;
+  if (resolved === vaultRoot) {
+    process.stderr.write(`error: --out cannot be the vault root: ${resolved}\n`);
+    process.exit(1);
+  }
   if (!resolved.startsWith(vaultPrefix)) {
     process.stderr.write(`warn: --out path is outside the vault: ${resolved}\n`);
   }

@@ -399,10 +399,20 @@ export async function buildSelfReviewPrompt(args) {
 // Resolve a user-supplied --out path against the vault root. Mirrors the
 // report.js#resolveOutPath helper. The CLI may legitimately want to dump a
 // review draft to /tmp for inspection; warn loudly but do not block.
+// WR-06: reject the vault-root sub-case outright — the prefix-startsWith
+// check used to fire the "outside the vault" warning for `--out <vaultRoot>`
+// (because vaultRoot does not end in `sep`), then return the resolved path,
+// and the subsequent writeFile would fail with EISDIR (vaultRoot is a
+// directory). Refuse explicitly with a clear error instead.
 function resolveOutPath(rawOut, defaultPath) {
   if (!rawOut) return defaultPath;
   const r = resolve(rawOut);
-  const vaultPrefix = resolve(getVaultPath()) + sep;
+  const vaultRoot = resolve(getVaultPath());
+  const vaultPrefix = vaultRoot + sep;
+  if (r === vaultRoot) {
+    process.stderr.write(`error: --out cannot be the vault root: ${r}\n`);
+    process.exit(1);
+  }
   if (!r.startsWith(vaultPrefix)) {
     process.stderr.write(`warn: --out path is outside the vault: ${r}\n`);
   }
