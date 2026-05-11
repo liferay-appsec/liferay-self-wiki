@@ -340,3 +340,22 @@ test('Dry-run on a month with zero dailies completes cleanly without writes', ()
   // No monthly file was written by the dry-run.
   assert.equal(existsSync(join(vault, 'Reports', '2025-07.md')), false);
 });
+
+// ---- Plan 03-06 RED: reportMonthOrchestrator gains internal:true plumbing ----
+
+test('Plan 03-06 — reportMonthOrchestrator is exported with internal:true plumbing', () => {
+  const src = readFileSync(new URL('../src/commands/report.js', import.meta.url).pathname, 'utf8');
+  // Function is exported so reviews.js can import + invoke.
+  assert.match(src, /^export async function reportMonthOrchestrator/m);
+  // internal flag is read off opts at the top of the orchestrator.
+  assert.match(src, /const internal = opts\.internal === true/);
+  // Inner hasClaudeCli re-check is gated behind !internal (no partial state on cascade).
+  assert.match(src, /if \(!internal && !\(await hasClaudeCli\(\)\)\)/);
+  // The "synthesizing"/"backfilling" stderr line is selected by internal.
+  assert.match(src, /internal \? 'backfilling' : 'synthesizing'/);
+  // The wrote-stdout line is suppressed when internal === true. Two
+  // occurrences of `if (!internal)` are expected: one in the week
+  // orchestrator (already there), one in the month orchestrator (NEW).
+  const matches = src.match(/if \(!internal\)/g) || [];
+  assert.ok(matches.length >= 2, `expected ≥2 \`if (!internal)\` guards, got ${matches.length}`);
+});

@@ -269,3 +269,108 @@ test('soft-fail-to-dry-run code path exists in src/core/reviews.js (REVIEW-08 gr
   assert.match(src, /printing prompt to stdout instead/);
   assert.match(src, /hasClaudeCli/);
 });
+
+// ---------------------------------------------------------------------------
+// Auto-backfill cascade — REVIEW-05 + D-05 (Plan 03-06 slice 2)
+// ---------------------------------------------------------------------------
+
+test('Preflight stderr summary fires when monthlies are missing (D-05)', () => {
+  // Tidy any prior-cycle review file that may have been seeded by previous
+  // tests so the dry-run path is deterministic.
+  try { unlinkSync(join(vault, 'Reviews', '2025-cycle3.md')); } catch {}
+  try { unlinkSync(join(vault, 'Reviews', '2026-cycle1.md')); } catch {}
+
+  const r = runCli(['--cycle', '2026-cycle1', '--dry-run']);
+  assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+  // Cycle 2026-cycle1 = Jan 1 → Apr 30, fixture seeds only 2026-02.md.
+  assert.match(r.stderr, /Resolving 2026-cycle1/);
+  assert.match(r.stderr, /Monthlies needed: 2026-01, 2026-02, 2026-03, 2026-04/);
+  assert.match(r.stderr, /✓ Reports\/2026-02\.md exists/);
+  // Dry-run path: "would generate (skipped — dry-run)".
+  assert.match(r.stderr, /would generate \(skipped — dry-run\)/);
+});
+
+test('--dry-run does NOT trigger the auto-backfill cascade (D-07)', () => {
+  // Pre-condition: fixture has only 2026-02.md among 2026-cycle1's monthlies.
+  try { unlinkSync(join(vault, 'Reports', '2026-01.md')); } catch {}
+  try { unlinkSync(join(vault, 'Reports', '2026-03.md')); } catch {}
+  try { unlinkSync(join(vault, 'Reports', '2026-04.md')); } catch {}
+  try { unlinkSync(join(vault, 'Reviews', '2026-cycle1.md')); } catch {}
+  // Verify state before:
+  assert.equal(existsSync(join(vault, 'Reports', '2026-01.md')), false);
+  assert.equal(existsSync(join(vault, 'Reports', '2026-03.md')), false);
+
+  const r = runCli(['--cycle', '2026-cycle1', '--dry-run']);
+  assert.equal(r.status, 0);
+
+  // No new monthly files created by the dry-run (D-07 strict).
+  assert.equal(existsSync(join(vault, 'Reports', '2026-01.md')), false);
+  assert.equal(existsSync(join(vault, 'Reports', '2026-03.md')), false);
+  assert.equal(existsSync(join(vault, 'Reports', '2026-04.md')), false);
+  // No Reviews file either.
+  assert.equal(existsSync(join(vault, 'Reviews', '2026-cycle1.md')), false);
+  // The WINDOW_NOTE in stdout uses the dry-run phrasing.
+  assert.match(r.stdout, /WINDOW_NOTE:/);
+  assert.match(r.stdout, /would be backfilled in non-dry-run/);
+});
+
+test('Without --dry-run, missing claude soft-fails BEFORE the cascade (no partial state)', () => {
+  // Fresh vault state — no Reviews file, no extra monthlies.
+  const cycleFile = join(vault, 'Reviews', '2026-cycle1.md');
+  try { unlinkSync(cycleFile); } catch {}
+  try { unlinkSync(join(vault, 'Reports', '2026-01.md')); } catch {}
+  try { unlinkSync(join(vault, 'Reports', '2026-03.md')); } catch {}
+  try { unlinkSync(join(vault, 'Reports', '2026-04.md')); } catch {}
+
+  const r = spawnSync(process.execPath, [CLI_ENTRY, 'self-review', '--cycle', '2026-cycle1'], {
+    env: {
+      ...process.env,
+      PATH: '/nonexistent',
+      XDG_DATA_HOME: process.env.XDG_DATA_HOME,
+      XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+    },
+    encoding: 'utf8',
+  });
+  // Exit 0 — soft-fail-to-dry-run, NOT exit 2 (divergent from monthly path).
+  assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+  assert.match(r.stderr, /claude.* CLI not found on PATH/);
+  assert.match(r.stderr, /printing prompt to stdout instead/);
+
+  // Critical invariant: no monthly was backfilled despite the cascade
+  // being non-empty. The hoisted hasClaudeCli gate prevents partial state.
+  assert.equal(existsSync(join(vault, 'Reports', '2026-01.md')), false);
+  assert.equal(existsSync(join(vault, 'Reports', '2026-03.md')), false);
+  // No Reviews file.
+  assert.equal(existsSync(cycleFile), false);
+  // Vault config unchanged (no writeback on soft-fail).
+  const cfg = JSON.parse(readFileSync(join(vault, '.self-wiki', 'config.json'), 'utf8'));
+  assert.equal(cfg.review.lastReviewedAt, null);
+});
+
+// ---------------------------------------------------------------------------
+// Structural guards — cascade pieces
+// ---------------------------------------------------------------------------
+
+test('selfReviewOrchestrator imports reportMonthOrchestrator (cascade structural guard)', () => {
+  const src = readFileSync(new URL('../src/core/reviews.js', import.meta.url).pathname, 'utf8');
+  assert.match(src, /import \{ reportMonthOrchestrator \} from '\.\.\/commands\/report\.js'/);
+  assert.match(src, /reportMonthOrchestrator\(\{ month: monthStr, internal: true \}\)/);
+});
+
+test('Auto-backfill cascade re-loads monthlies post-loop (no-stale-state guard)', () => {
+  const src = readFileSync(new URL('../src/core/reviews.js', import.meta.url).pathname, 'utf8');
+  assert.match(src, /Re-load monthlies post-cascade/);
+  // Two monthly-load loops (initial + post-cascade re-load) — count `for (const monthStr of months)`:
+  const matches = src.match(/for \(const monthStr of months\)/g) || [];
+  assert.ok(matches.length >= 2, `expected at least 2 monthly-load loops, found ${matches.length}`);
+});
+
+test('Hoisted soft-fail-to-dry-run gate fires before cascade (no-partial-state guard)', () => {
+  const src = readFileSync(new URL('../src/core/reviews.js', import.meta.url).pathname, 'utf8');
+  // The hoisted gate computes prompt0 and returns BEFORE the cascade.
+  // Verify the cascade block (with reportMonthOrchestrator) appears AFTER the hoisted-gate block.
+  const hoistedIdx = src.indexOf('printing prompt to stdout instead');
+  const cascadeIdx = src.indexOf('reportMonthOrchestrator({ month: monthStr');
+  assert.ok(hoistedIdx > 0 && cascadeIdx > 0, 'expected both hoisted gate and cascade present');
+  assert.ok(hoistedIdx < cascadeIdx, `expected hoisted gate (${hoistedIdx}) to appear before cascade (${cascadeIdx})`);
+});

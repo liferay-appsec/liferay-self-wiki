@@ -24,6 +24,7 @@ import { fileURLToPath } from 'url';
 import { resolveCycle } from './cycles.js';
 import { readVaultConfig, writeVaultConfig } from './config.js';
 import { hasClaudeCli, claudeHeadless } from './claude.js';
+import { reportMonthOrchestrator } from '../commands/report.js';
 import { getReviewFilePath, getReportFilePath, getVaultPath, ensureParentDir } from '../utils/paths.js';
 import { monthsInRange, weeksInMonth, datesInMonth } from '../utils/format.js';
 import { escapeRegex } from '../utils/regex.js';
@@ -495,16 +496,119 @@ export async function selfReviewOrchestrator(opts = {}) {
     }
   }
 
-  // 4. Load monthlies in-window. Slice 1 reads-only; Slice 2 adds backfill.
+  // 4. Load monthlies in-window. Slice 2 adds the auto-backfill cascade
+  //    immediately after, gated by a single hoisted hasClaudeCli check.
+  //    `let`-bound (not const) so the post-cascade re-load (step 4c) can
+  //    overwrite into the same names — downstream buildSelfReviewPrompt
+  //    MUST see post-backfill state.
   const months = monthsInRange(window.start, window.end);
-  const monthlies = [];
-  const missingMonths = [];
+  let monthlies = [];
+  let missingMonths = [];
   for (const monthStr of months) {
     try {
       const raw = await readFile(getReportFilePath(monthStr), 'utf8');
       monthlies.push({ monthStr, raw });
     } catch {
       missingMonths.push(monthStr);
+    }
+  }
+
+  // 4a. Preflight stderr summary (D-05) — print BEFORE any side effect so
+  //     the user sees the cascade size and can Ctrl-C if surprised.
+  if (missingMonths.length > 0) {
+    const presentList = monthlies.map((m) => `Reports/${m.monthStr}.md`);
+    const willGenerate = missingMonths.join(', ');
+    // Conservative estimate: each missing month covers ~4 ISO weeks.
+    const cascadeEstimate = missingMonths.length * 4;
+    process.stderr.write(`Resolving ${window.cycleName} (${window.start} → ${window.end})…\n`);
+    process.stderr.write(`Monthlies needed: ${months.join(', ')}\n`);
+    for (const p of presentList) {
+      process.stderr.write(`  ✓ ${p} exists\n`);
+    }
+    if (opts.dryRun) {
+      process.stderr.write(`  would generate (skipped — dry-run): ${willGenerate} (${missingMonths.length})\n`);
+    } else {
+      process.stderr.write(`  will generate: ${willGenerate} (${missingMonths.length})\n`);
+      process.stderr.write(`  cascades to backfill ~${cascadeEstimate} weekly reports (estimate)\n`);
+    }
+  }
+
+  // 4b. Hoisted soft-fail-to-dry-run gate (REVIEW-08 + D-05 single
+  //     hasClaudeCli gate). Fires WHENEVER --dry-run is off AND claude is
+  //     missing — handles both cases:
+  //       - the cascade needs claude (and would fail mid-loop without
+  //         this gate, leaving partial state in the vault);
+  //       - the final synthesis needs claude (cascade may be empty but
+  //         we still need claude for the review itself).
+  //     No partial state: we never enter the cascade or the final
+  //     claudeHeadless call. The slice-1 post-prompt check is now
+  //     redundant and removed below.
+  if (!opts.dryRun && !(await hasClaudeCli())) {
+    // Build the prompt with current state (no backfill ran). Surface
+    // missing monthlies in the WINDOW_NOTE so the model still sees them.
+    const dates0 = datesInRange(window.start, window.end);
+    const topicPages0 = await loadInCycleTopicPages(dates0);
+    const weeks0 = weeksInRange(window.start, window.end);
+    const weeklies0 = [];
+    for (const weekStr of weeks0) {
+      try {
+        const raw = await readFile(getReportFilePath(weekStr), 'utf8');
+        weeklies0.push({ weekStr, raw });
+      } catch { /* skip */ }
+    }
+    const priorReview0 = await loadPriorCycleReview({
+      cycleName: window.cycleName,
+      manualPath: opts.priorReview,
+      cycleEndMonths,
+    });
+    const missingNote0 = missingMonths.length > 0
+      ? `Missing monthlies (would be backfilled in non-dry-run): ${missingMonths.join(', ')}.`
+      : null;
+    const prompt0 = await buildSelfReviewPrompt({
+      window,
+      monthlies,
+      weeklies: weeklies0,
+      topicPages: topicPages0,
+      priorReview: priorReview0,
+      partialNote: window.partialNote,
+      missingMonthlyNote: missingNote0,
+    });
+    process.stderr.write(
+      'warn: `claude` CLI not found on PATH; printing prompt to stdout instead (dry-run mode).\n',
+    );
+    process.stdout.write(prompt0 + '\n');
+    return;
+  }
+
+  // 4c. Auto-backfill cascade (D-05 default-on, D-07 dry-run strict).
+  //     Skip when --dry-run (Phase 2 D-15 mirror — never invoke
+  //     synthesis silently). reportMonthOrchestrator itself cascades
+  //     into weeklies (Phase 2), so a fresh-vault cycle-end run may
+  //     trigger ~16 claude invocations from a single keystroke.
+  if (!opts.dryRun && missingMonths.length > 0) {
+    for (const monthStr of missingMonths) {
+      try {
+        await reportMonthOrchestrator({ month: monthStr, internal: true });
+      } catch (err) {
+        // Best-effort cascade — log and continue. Mirrors monthly's
+        // weekly-cascade error handling (src/commands/report.js
+        // lines 301-310). The hoisted hasClaudeCli gate already
+        // guards binary-presence; this catches claude -p runtime
+        // failures (network blip, model error, OOM, killed).
+        process.stderr.write(`warn: backfill failed for ${monthStr}: ${err && err.message ? err.message : err}\n`);
+      }
+    }
+    // Re-load monthlies post-cascade. The downstream buildSelfReviewPrompt
+    // MUST see the post-backfill state, NOT the pre-cascade snapshot.
+    monthlies = [];
+    missingMonths = [];
+    for (const monthStr of months) {
+      try {
+        const raw = await readFile(getReportFilePath(monthStr), 'utf8');
+        monthlies.push({ monthStr, raw });
+      } catch {
+        missingMonths.push(monthStr);
+      }
     }
   }
 
@@ -531,10 +635,16 @@ export async function selfReviewOrchestrator(opts = {}) {
     cycleEndMonths,
   });
 
-  // 8. Window note(s) — surface missing monthlies as a hint to the user
-  //    (slice 2 will auto-backfill instead).
+  // 8. Window note(s) — surface remaining missing monthlies. Under
+  //    slice 2 the cascade fires automatically; this note only appears
+  //    in two cases:
+  //      - dry-run: "would be backfilled in non-dry-run" hint;
+  //      - cascade ran but some months failed best-effort: "cascade
+  //        attempted but some failed".
   const missingMonthlyNote = missingMonths.length > 0
-    ? `Missing monthlies (consider running \`self-wiki report --month <YYYY-MM>\` first): ${missingMonths.join(', ')}.`
+    ? (opts.dryRun
+        ? `Missing monthlies (would be backfilled in non-dry-run): ${missingMonths.join(', ')}.`
+        : `Missing monthlies (cascade attempted but some failed): ${missingMonths.join(', ')}.`)
     : null;
 
   // 9. Build prompt.
@@ -554,17 +664,10 @@ export async function selfReviewOrchestrator(opts = {}) {
     return;
   }
 
-  // 11. Soft-fail-to-dry-run on missing claude (REVIEW-08 + ROADMAP criterion 5).
-  //     DIVERGENT from reportMonthOrchestrator (which exit-2's). For self-review
-  //     we degrade rather than failing because review-time is high-friction:
-  //     the user wants the prompt either way.
-  if (!(await hasClaudeCli())) {
-    process.stderr.write(
-      'warn: `claude` CLI not found on PATH; printing prompt to stdout instead (dry-run mode).\n',
-    );
-    process.stdout.write(prompt + '\n');
-    return;
-  }
+  // 11. Soft-fail-to-dry-run on missing claude is now HOISTED to step
+  //     4b above (single hasClaudeCli gate, no partial state on cascade).
+  //     By the time we reach this point in non-dry-run mode, hasClaudeCli
+  //     has already returned true.
 
   // 12. Synthesize.
   process.stderr.write(`synthesizing self-review for ${window.cycleName}…\n`);
