@@ -263,6 +263,16 @@ The CLI itself updates as soon as you re-link. The skill file at `~/.claude/skil
 
 Re-running `init` after upgrading is a no-op when nothing changed, but it picks up new `Bash(self-wiki …)` permission rules (e.g. `close-orphans`) and refreshes the skill primer when the closing-summary phrase list grows. Daily logs, topic pages, and weekly reports are never touched.
 
+## Troubleshooting
+
+Run `self-wiki doctor` to diagnose your install. Each ✓/✗ is followed by a one-line remediation. Below: common symptoms keyed to specific doctor checks.
+
+| Symptom | Doctor check | Fix |
+| --- | --- | --- |
+| Sessions not opening in new repos | `hooks merged in settings.json` ✗ or `i hooks:` drift line | run `self-wiki init --hooks-only` |
+| No notes captured in the daily log | `vault config present` ✗ or `vault path exists on disk` ✗ | run `self-wiki init <vault>` |
+| Approval prompts during `claude` turns | `permissions merged in settings.json` ✗ or `i permissions:` drift line | run `self-wiki init --permissions-only` |
+
 ## License
 
 Apache 2.0. See [LICENSE](LICENSE) for the license text and [NOTICE](NOTICE) for copyright attribution.
