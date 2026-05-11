@@ -1,5 +1,24 @@
 # self-wiki
 
+## Current Milestone: v1.1 Public Release for Liferay Engineers
+
+**Goal:** Make self-wiki land cleanly when shared in a Slack channel with all Liferay engineers — a fresh dev can clone, install, and trust it within their first hour.
+
+**Target features:**
+
+- Public-grade README restructured demo-first, with real repo URL, annotated daily-log / weekly-report / self-review snippets, and a "what you'll get in your first week" outcome.
+- Sample (scrubbed) outputs committed to `docs/examples/` as reference artifacts — daily log, weekly report, monthly report, self-review draft. Anchors the README's claims; reduces "is this worth my time?" friction.
+- Install UX hardening: a `self-wiki doctor` diagnostic command (Node version, vault config, hook merge, permissions presence, `claude` CLI availability) plus a fresh-user dry-run pass that fixes anything rough.
+- `LICENSE` (Apache 2.0) and `CONTRIBUTING.md` (points at `CLAUDE.md` architecture rules + no-PR-without-tests bar) at repo root, plus a short "what gets logged in your vault" privacy posture note so users know what's in their own daily files.
+- Launch kit: Slack announcement draft at `docs/launch-post.md` (value prop, 30-second pitch, install steps, FAQ skeleton), and a feedback channel reference in the README so users know where to report issues.
+
+**Key context:**
+
+- Distribution model unchanged: clone + `npm install -g .` from `liferay-appsec/liferay-self-wiki`. No npm publish, no public-github surface.
+- Liferay-specific defaults stay baked in (cycle `[5,9,12]`, 5 values, `LPD-` regex) — they are the value prop, not a bug. Examples in docs get generalized so no real ticket bodies or PR titles from the author's vault land in the repo.
+- No new product features. No re-architecture. v1.0's product surface is the product surface. v2.0's reserved scope (TREND-01..03, TOOL-01..02) remains future.
+- License: **Apache 2.0** — patent grant + industry-default for dev tooling; safe posture if the repo ever moves to public github.com.
+
 ## What This Is
 
 A CLI + Claude Code skill + Claude Code hooks that turns every `claude` session inside a repo into a daily markdown log in your Obsidian vault, then synthesizes weekly reports and per-ticket / per-component topic pages on demand. The autonomy boundary is the hook: sessions open and close automatically; the model drops terse decision/outcome notes during work; the CLI does the synthesis. Built for and used by a single Liferay engineer today; intentionally personal-scale.
@@ -30,9 +49,9 @@ A CLI + Claude Code skill + Claude Code hooks that turns every `claude` session 
 
 ### Active
 
-<!-- Current scope. Cleared at v1.0 close — next milestone defines its own active set via /gsd-new-milestone. -->
+<!-- Current scope for milestone v1.1 — defined by /gsd-new-milestone 2026-05-11. REQ-IDs filled in by REQUIREMENTS.md. -->
 
-_(none — awaiting next milestone)_
+_(see `.planning/REQUIREMENTS.md` for v1.1 REQ-IDs grouped by DOCS / INSTALL / LEGAL / EXAMPLES / LAUNCH)_
 
 ### Out of Scope
 
@@ -101,4 +120,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-11 after v1.0 milestone close (Self-Review Report shipped)*
+*Last updated: 2026-05-11 — v1.1 milestone opened (Public Release for Liferay Engineers)*
