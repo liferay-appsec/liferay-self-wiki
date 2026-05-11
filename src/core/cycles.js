@@ -22,6 +22,14 @@ function validateCycleEndMonths(arr) {
 
 function normalizeDateUTC(date) {
   const d = date instanceof Date ? date : new Date(date);
+  // Reject Invalid Date inputs early. Without this guard, `.getUTCFullYear()`
+  // returns NaN and the downstream partition loop in resolveCycle never
+  // matches — yielding a "NaN-cycle0" with "NaN-NaN-NaN" bounds (WR-02).
+  // The throw message intentionally differs from INVALID_MONTHS_MSG so the
+  // en-dash test in test/cycles.test.js continues to pass.
+  if (Number.isNaN(d.getTime())) {
+    throw new Error(`resolveCycle: invalid date input: ${date}`);
+  }
   // Re-anchor at UTC midnight; reading via getUTC* avoids local-tz drift.
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 }
