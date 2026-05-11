@@ -71,6 +71,10 @@ test('setVaultPath enables vault-relative helpers', () => {
     join(vault, 'Reports', '2026-W18.md'),
   );
   assert.equal(
+    paths.getReviewFilePath('2026-cycle1'),
+    join(vault, 'Reviews', '2026-cycle1.md'),
+  );
+  assert.equal(
     paths.getTicketFilePath('LPD-123'),
     join(vault, 'Tickets', 'LPD-123.md'),
   );
