@@ -342,7 +342,10 @@ test('buildSelfReviewPrompt: emits PRIOR_REVIEW block on manual override', async
   });
   assert.match(out, /PRIOR_REVIEW:/);
   assert.match(out, /old review body content/);
-  assert.ok(!out.includes('PRIOR_GROWTH_FOCUS'));
+  // Envelope-specific marker is `PRIOR_GROWTH_FOCUS (<priorCycleName>):`. The
+  // bare token `PRIOR_GROWTH_FOCUS` appears in the prompt header as
+  // documentation, so check only that the envelope block was not emitted.
+  assert.ok(!out.includes('PRIOR_GROWTH_FOCUS ('));
 });
 
 test('buildSelfReviewPrompt: emits PRIOR_GROWTH_FOCUS on auto-detect with non-empty Q3', async () => {

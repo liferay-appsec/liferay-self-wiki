@@ -18,20 +18,18 @@
 //   - buildSelfReviewPrompt — REVIEW-06 + D-08 + D-13 (prompt envelope)
 // plus SELF_REVIEW_PROMPT_PATH alongside MONTHLY_PROMPT_PATH / WEEKLY_PROMPT_PATH.
 
-import { mkdir } from 'fs/promises';
-import { join } from 'path';
+import { mkdir, readFile, readdir } from 'fs/promises';
+import { dirname, join, resolve } from 'path';
+import { fileURLToPath } from 'url';
 import { resolveCycle } from './cycles.js';
-import { getReviewFilePath } from '../utils/paths.js';
+import { getReviewFilePath, getVaultPath } from '../utils/paths.js';
+import { escapeRegex } from '../utils/regex.js';
 
 export async function ensureReviewsDir(vaultPath) {
   await mkdir(join(vaultPath, 'Reviews'), { recursive: true });
 }
 
 // ---------- Prompt path constant (consumed by buildSelfReviewPrompt below) ----------
-
-import { readFile } from 'fs/promises';
-import { fileURLToPath } from 'url';
-import { dirname, resolve } from 'path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const SELF_REVIEW_PROMPT_PATH = resolve(
@@ -227,4 +225,162 @@ export async function loadPriorCycleReview(args) {
   }
   const q3 = extractQ3(body);
   return { kind: 'autoQ3', path, body: q3, priorCycleName: priorName };
+}
+
+// ---------- In-cycle topic-page loader (D-08 + REVIEW-05) ----------
+
+/**
+ * Walk Tickets/ and Components/ in the active vault; return topic pages
+ * that contain at least one `^## <date>\b` section header for any date
+ * in `dates`. Soft-fails when a directory is missing.
+ *
+ * Direct analog of `loadInMonthTopicPages` in src/commands/report.js with
+ * the `dates` array expanded from in-month to in-cycle (4 months × ~30 days).
+ * The regex anchor and the Tickets/Components walk transfer verbatim.
+ *
+ * @param {string[]} dates  Array of ISO YYYY-MM-DD strings
+ * @returns {Promise<Array<{ slug: string, raw: string, kind: 'ticket'|'component' }>>}
+ */
+export async function loadInCycleTopicPages(dates) {
+  if (!Array.isArray(dates) || dates.length === 0) return [];
+  // Single regex matching any in-cycle date as a `## ` section header start.
+  // Anchor on `^## <date>\b` (multiline) so a future formatting tweak of
+  // src/core/topics.js#appendDatedSection (`: ` vs ` — `, etc.) does not
+  // silently drop topic pages from the synthesis.
+  const dateRe = new RegExp(`^## (?:${dates.map(escapeRegex).join('|')})\\b`, 'm');
+  const out = [];
+  for (const kind of ['Tickets', 'Components']) {
+    const dir = join(getVaultPath(), kind);
+    let entries;
+    try {
+      entries = await readdir(dir);
+    } catch {
+      continue; // directory missing — fine
+    }
+    for (const fname of entries) {
+      if (!fname.endsWith('.md')) continue;
+      const slug = fname.slice(0, -3);
+      let raw;
+      try {
+        raw = await readFile(join(dir, fname), 'utf8');
+      } catch {
+        continue;
+      }
+      if (dateRe.test(raw)) {
+        out.push({ slug, raw, kind: kind === 'Tickets' ? 'ticket' : 'component' });
+      }
+    }
+  }
+  return out;
+}
+
+// ---------- Prompt builder (REVIEW-06 + D-08 + D-13) ----------
+
+/**
+ * Build the full self-review synthesis prompt envelope.
+ *
+ * Envelope shape (top-to-bottom):
+ *   1. Prompt header (read from SELF_REVIEW_PROMPT_PATH at runtime)
+ *   2. `---` separator
+ *   3. `CYCLE: <cycleName> (<start> → <end>)`
+ *   4. Optional `WINDOW_NOTE:` (concatenates partialNote + missingMonthlyNote)
+ *   5. `SOURCES_LINE: <derived>` (REVIEW-09 — always emitted)
+ *   6. Optional `METRICS:` block (only when args.metrics provided)
+ *   7. `MONTHLIES: (primary — use as the spine)` block
+ *   8. `WEEKLIES: (secondary — for detail when monthly is thin)` block
+ *   9. `TOPIC_PAGES: (ticket/component ground truth)` block
+ *  10. Optional `PRIOR_REVIEW:` (kind==='manual') OR `PRIOR_GROWTH_FOCUS:`
+ *      (kind==='autoQ3' AND body non-empty). Manual wins on collision —
+ *      loadPriorCycleReview already enforces this, but the conditionals
+ *      here defend the invariant defensively so a future caller cannot
+ *      inadvertently emit both.
+ *
+ * Per D-08 the MONTHLIES → WEEKLIES → TOPIC_PAGES ordering is load-bearing
+ * (primary spine first, secondary detail, then ground truth); the order is
+ * locked by an ordering test in test/reviews.test.js.
+ *
+ * @param {object} args
+ * @param {{cycleName: string, start: string, end: string}}                args.window
+ * @param {Array<{ monthStr: string, raw: string }>}                       args.monthlies
+ * @param {Array<{ weekStr: string, raw: string }>}                        args.weeklies
+ * @param {Array<{ slug: string, raw: string, kind: 'ticket'|'component' }>} args.topicPages
+ * @param {null | { kind: 'manual'|'autoQ3', path: string, body: string, priorCycleName?: string }} args.priorReview
+ * @param {string|null} [args.partialNote]
+ * @param {string|null} [args.missingMonthlyNote]
+ * @param {string|null} [args.metrics]
+ * @returns {Promise<string>}
+ */
+export async function buildSelfReviewPrompt(args) {
+  const { window, monthlies, weeklies, topicPages, priorReview } = args;
+  const promptHeader = await readFile(SELF_REVIEW_PROMPT_PATH, 'utf8');
+
+  // Sources line — file-level granularity per D-13.
+  const monthlyParts = monthlies.length > 0
+    ? `Monthlies: ${monthlies.map((m) => `\`Reports/${m.monthStr}.md\``).join(', ')}.`
+    : 'Monthlies: (none).';
+  const weeklyParts = weeklies.length > 0
+    ? `Weeklies: ${weeklies.map((w) => `\`Reports/${w.weekStr}.md\``).join(', ')}.`
+    : 'Weeklies: (none).';
+  const topicParts = topicPages.length > 0
+    ? `Topic pages: ${topicPages.map((t) => `\`${t.kind === 'ticket' ? 'Tickets' : 'Components'}/${t.slug}.md\``).join(', ')}.`
+    : '';
+  const sourcesLine = `Sources: ${[monthlyParts, weeklyParts, topicParts].filter(Boolean).join(' ')}`.trim();
+
+  // Body blocks — preserve role hints in headers per D-08.
+  const monthliesBlock = monthlies.length > 0
+    ? monthlies.map((m) => `## --- ${m.monthStr} ---\n\n${m.raw.trim()}`).join('\n\n')
+    : '(no monthlies for this cycle)';
+  const weekliesBlock = weeklies.length > 0
+    ? weeklies.map((w) => `## --- ${w.weekStr} ---\n\n${w.raw.trim()}`).join('\n\n')
+    : '(no weeklies for this cycle)';
+  const topicPagesBlock = topicPages.length > 0
+    ? topicPages.map((t) => `## --- ${t.slug} ---\n\n${t.raw.trim()}`).join('\n\n')
+    : '(no in-cycle topic pages)';
+
+  const parts = [
+    promptHeader,
+    '',
+    '---',
+    '',
+    `CYCLE: ${window.cycleName} (${window.start} → ${window.end})`,
+  ];
+
+  // WINDOW_NOTE — emit when partial-window OR missing-monthly note present.
+  const windowNoteLines = [];
+  if (args.partialNote) windowNoteLines.push(args.partialNote);
+  if (args.missingMonthlyNote) windowNoteLines.push(args.missingMonthlyNote);
+  if (windowNoteLines.length > 0) {
+    parts.push('', 'WINDOW_NOTE:', windowNoteLines.join('\n'));
+  }
+
+  parts.push('', 'SOURCES_LINE:', sourcesLine);
+
+  if (args.metrics) {
+    parts.push('', 'METRICS:', args.metrics);
+  }
+
+  parts.push(
+    '',
+    'MONTHLIES: (primary — use as the spine)',
+    monthliesBlock,
+    '',
+    'WEEKLIES: (secondary — for detail when monthly is thin)',
+    weekliesBlock,
+    '',
+    'TOPIC_PAGES: (ticket/component ground truth)',
+    topicPagesBlock,
+  );
+
+  // Prior-review block: manual wins on collision (loadPriorCycleReview already
+  // enforces this, but defensively double-check here so a future caller cannot
+  // inadvertently emit both).
+  if (priorReview) {
+    if (priorReview.kind === 'manual' && priorReview.body) {
+      parts.push('', 'PRIOR_REVIEW:', priorReview.body);
+    } else if (priorReview.kind === 'autoQ3' && priorReview.body) {
+      parts.push('', `PRIOR_GROWTH_FOCUS (${priorReview.priorCycleName}):`, priorReview.body);
+    }
+  }
+
+  return parts.join('\n');
 }
