@@ -23,6 +23,23 @@ const SKILL_DEST = join(homedir(), '.claude', 'skills', 'wiki', 'SKILL.md');
 const SETTINGS_DEST = join(homedir(), '.claude', 'settings.json');
 
 export async function initCommand(vaultArg, opts = {}) {
+  // Narrow-fix flags: run only the named Claude-Code-wiring steps and
+  // skip vault scaffolding / user-config writes entirely. Combining two
+  // (or three) --X-only flags collapses to "do all named, skip the rest"
+  // per Phase 06 CONTEXT.md Claude's-Discretion-->-combinability.
+  if (opts.hooksOnly || opts.permissionsOnly || opts.skillOnly) {
+    if (opts.skillOnly) {
+      await installSkill(opts.yes);
+    }
+    if (opts.hooksOnly) {
+      await proposeHooks(opts.yes);
+    }
+    if (opts.permissionsOnly) {
+      await proposePermissions(opts.yes);
+    }
+    return;
+  }
+
   const vaultPath = resolve(vaultArg || (await readUserConfig()).vaultPath || join(homedir(), 'self-wiki-vault'));
   await mkdir(vaultPath, { recursive: true });
   setVaultPath(vaultPath);
@@ -49,19 +66,7 @@ export async function initCommand(vaultArg, opts = {}) {
   }
 
   if (opts.skill !== false) {
-    await mkdir(dirname(SKILL_DEST), { recursive: true });
-    if (await fileExists(SKILL_DEST)) {
-      const overwrite = opts.yes || await confirm(`overwrite existing ${rel(SKILL_DEST)}?`, false);
-      if (overwrite) {
-        await copyFile(SKILL_SRC, SKILL_DEST);
-        process.stdout.write(`  ${chalk.green('✓')} skill installed to ${rel(SKILL_DEST)}\n`);
-      } else {
-        process.stdout.write(`  ${chalk.yellow('·')} skill not overwritten\n`);
-      }
-    } else {
-      await copyFile(SKILL_SRC, SKILL_DEST);
-      process.stdout.write(`  ${chalk.green('✓')} skill installed to ${rel(SKILL_DEST)}\n`);
-    }
+    await installSkill(opts.yes);
   }
 
   if (opts.hooks !== false) {
@@ -191,6 +196,22 @@ async function proposePermissions(skipConfirm) {
   };
   await writeFile(SETTINGS_DEST, JSON.stringify(next, null, 2) + '\n', 'utf8');
   process.stdout.write(`  ${chalk.green('✓')} permissions written to ${rel(SETTINGS_DEST)}\n`);
+}
+
+async function installSkill(yes) {
+  await mkdir(dirname(SKILL_DEST), { recursive: true });
+  if (await fileExists(SKILL_DEST)) {
+    const overwrite = yes || await confirm(`overwrite existing ${rel(SKILL_DEST)}?`, false);
+    if (overwrite) {
+      await copyFile(SKILL_SRC, SKILL_DEST);
+      process.stdout.write(`  ${chalk.green('✓')} skill installed to ${rel(SKILL_DEST)}\n`);
+    } else {
+      process.stdout.write(`  ${chalk.yellow('·')} skill not overwritten\n`);
+    }
+  } else {
+    await copyFile(SKILL_SRC, SKILL_DEST);
+    process.stdout.write(`  ${chalk.green('✓')} skill installed to ${rel(SKILL_DEST)}\n`);
+  }
 }
 
 export function isSelfWikiBlock(block) {
