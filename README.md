@@ -4,6 +4,116 @@ A self-writing personal wiki for engineers. Just run `claude` inside a repo — 
 
 The model: Claude Code hooks frame sessions; a skill instructs Claude to drop terse decision/outcome notes during work; a CLI synthesizes weekly reports and rebuilds topic pages on demand.
 
+## What you get
+
+Inside the vault directory you chose, `init` creates:
+
+```
+<your-vault>/
+  Daily/YYYY-MM-DD.md          ← session log, source of truth
+  Reports/YYYY-Www.md          ← weekly synthesis (run `self-wiki report --week`)
+  Reports/YYYY-MM.md           ← monthly synthesis (run `self-wiki report --month`)
+  Tickets/EXAMPLE-NNN.md       ← grows across sessions
+  Components/<slug>.md         ← cross-ticket recurring areas
+  Reviews/YYYY-cycleN.md       ← cycle self-review draft (run `self-wiki self-review`)
+  .self-wiki/config.json       ← ticket regex, components, soft-close window
+```
+
+### Daily log
+
+The daily file is the source of truth — one markdown file per day, one session block per Claude Code session, one `- Note [HH:MM]:` line per terse decision/outcome Claude drops as the work lands.
+
+**Example output:**
+
+```markdown
+## Session 1 — Task: EXAMPLE-001 — extract OAuth provider interface
+- Started: 09:00
+- Note [09:18]: Re-read the four call sites that touch the legacy `oauthClient` directly. They all want the same three methods (`getAccessToken`, `refresh`, `revoke`) — the rest is private.
+- Note [11:55]: PR #421 opened against main. CI green on first push.
+- Ended: 12:08
+- Duration: 188 min
+- Completed: ✅
+
+## Session 3 — Task: EXAMPLE-003 — weekly CI coverage signal
+- Started: 15:30
+- Note [15:47]: Started on a small CI workflow that posts the diff in coverage against main as a PR comment.
+...
+<!-- session-3-open -->
+```
+
+[→ Full example: docs/examples/daily-log.md](docs/examples/daily-log.md)
+
+### Weekly report
+
+Run `self-wiki report --week` and the week's daily logs collapse into themes, decisions, lessons, and carry-over — the metrics block (PR refs, force-push count) is computed in code; the prose synthesis comes from `claude -p`.
+
+**Example output:**
+
+```markdown
+## Theme of the week
+
+The week's centre of gravity was the OAuth provider refactor (`EXAMPLE-001`). The session-expiry race fix (`EXAMPLE-002`) was a one-day detour driven by an inbound bug.
+
+| Ticket        | Layer           | Outcome                                                              |
+| ------------- | --------------- | -------------------------------------------------------------------- |
+| `EXAMPLE-001` | Auth / provider | PR #421 opened; `Provider` interface landed; four call sites next.   |
+| `EXAMPLE-002` | Auth / session  | PR #422 merged; single-flight lock; regression test added.           |
+
+## Notable architectural decisions
+
+- **`EXAMPLE-001` — `Provider.refresh` mutates in place rather than returning a fresh client.** Caller mental model stays singleton.
+...
+```
+
+[→ Full example: docs/examples/weekly-report.md](docs/examples/weekly-report.md)
+
+### Monthly report
+
+A themed synthesis at `Reports/<YYYY-MM>.md`, consumed by `self-wiki self-review` as the primary input for the cycle draft. See [→ Full example: docs/examples/monthly-report.md](docs/examples/monthly-report.md).
+
+### Self-review draft
+
+At the end of a Liferay review cycle, `self-wiki self-review` drafts the three Liferay-form-shaped sections from the in-cycle monthlies, weeklies, and topic pages — paste-ready, with every accomplishment tagged against the five Liferay values and a `## Sources` provenance footer.
+
+**Example output:**
+
+```markdown
+## 1. What have you accomplished since your last review? What work are you proud of?
+
+- **Designed and shipped the OAuth `Provider` interface and migrated all four legacy call sites (`EXAMPLE-001`, PRs #421, #427, #428, #431, #436)** *(source: `Reports/YYYY-04.md`, `Reports/YYYY-W14.md`, `Tickets/EXAMPLE-001.md`)* — Produce Excellence, Stay Nerdy
+- **Diagnosed and fixed a cross-tab session-expiry race (`EXAMPLE-002`, PR #422), with a two-tab regression test that doubled as the repro fixture** *(source: `Reports/YYYY-04.md`, `Tickets/EXAMPLE-002.md`)* — Produce Excellence
+- **Mentored a junior engineer on my team through the W15 call-site migrations, pairing on the first two and code-reviewing the rest** *(source: `Reports/YYYY-04.md`, `Reports/YYYY-W17.md`)* — Lead by Serving, Value People
+...
+```
+
+[→ Full example: docs/examples/self-review.md](docs/examples/self-review.md)
+
+## What gets logged in your vault
+
+self-wiki only ever writes into the vault directory you chose at `init` time. Here's exactly what lands in it.
+
+### Captured
+
+- branch name detected from `git rev-parse --abbrev-ref HEAD`.
+- ticket IDs matched by your configured `ticketRegex` (default `\b(LPD|LPP|LPS|LRELEASE)-\d+\b`, customizable in `.self-wiki/config.json`).
+- the text of every `self-wiki note "<text>"` line dropped during the session — written into the daily file as `- Note [HH:MM]: <text>`.
+- session start/end times, durations, and completion status (`Completed: ✅` or `Interrupted: ⚠️`).
+- switch lines when you change tasks mid-session (`- Switched: HH:MM → <newTask>`).
+- force-push counts (derived deterministically from `self-wiki note` lines that mention force-pushing; surfaced in the weekly and monthly metrics blocks).
+- PR titles (only if `gh` is configured) — fetched by `gh pr view --json title` during `session open`; requires `gh` on PATH and authenticated.
+- JIRA ticket titles (only if JIRA is configured) — fetched via the JIRA REST API during `session open`; requires `self-wiki config jira` to have run and `$JIRA_TOKEN` to be exported.
+
+### Not captured
+
+- file diffs, patches, or commit content — self-wiki never reads your working tree's file contents.
+- your prompts to Claude — the conversation transcript is not parsed into the daily log.
+- Claude's responses — not parsed into the log either.
+- environment variables, shell history, or anything outside the vault directory.
+
+Before sharing a screenshot, open the daily file and delete any note line you want to keep private — daily files are plain markdown.
+
+**Nothing leaves your machine automatically.** self-wiki itself makes no network calls. `claude -p` is invoked only when you explicitly run a synthesis command (`self-wiki report`, `self-wiki self-review`). `gh` and JIRA are read-only, opt-in, and only invoked during `session open` to enrich the detected task. Your daily logs never leave your vault unless you copy them out.
+
 ## Install
 
 Self-wiki is distributed as a clone-and-link Node CLI (no npm registry publish). Requires Node 20+.
@@ -11,7 +121,7 @@ Self-wiki is distributed as a clone-and-link Node CLI (no npm registry publish).
 Pick any directory you want as your vault — an existing Obsidian vault, a new folder, anywhere on disk. Self-wiki creates the subfolders it needs and otherwise leaves the directory alone.
 
 ```sh
-git clone <this-repo-url> self-wiki
+git clone https://github.com/liferay-appsec/liferay-self-wiki.git self-wiki
 cd self-wiki
 npm install
 npm install -g .
@@ -30,23 +140,7 @@ Examples: `~/notes`, `~/Documents/work-vault`, `/data/obsidian/personal`. Re-run
 
 Pass `--no-set-default` to skip step 5 — the vault scaffolds and the seed lands, but the user-config vault path is left alone. Useful for tmp/test vaults and acceptance harnesses where you don't want `init` to repoint the user's daily session lifecycle at a throwaway directory.
 
-## What you get
-
-Inside the vault directory you chose, `init` creates:
-
-```
-<your-vault>/
-  Daily/
-    2026-04-27.md       ← session log, source of truth
-  Reports/
-    2026-W17.md         ← weekly synthesis (run `self-wiki report --week`)
-  Tickets/
-    LPD-12345.md        ← grows across sessions
-  Components/
-    auth-provider.md    ← cross-ticket recurring areas
-  .self-wiki/
-    config.json         ← ticket regex, components, soft-close window
-```
+Contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for the dev flow (`npm link`) and the test bar.
 
 ## How sessions get framed
 
@@ -59,40 +153,6 @@ Inside the vault directory you chose, `init` creates:
 | `UserPromptSubmit`| `self-wiki nudge`                    | Once per session, on the first prompt with zero notes, primes the model with the noting contract so it reaches for `self-wiki note` when an outcome lands. |
 
 Task detection priority: current branch (`LPD-12345-foo` → `LPD-12345`) → `gh pr view` title → bare repo name.
-
-## Optional integrations
-
-Both are off by default. Self-wiki works fine without them.
-
-### `gh` CLI
-
-If `gh` is on your PATH and authenticated, `session open` enriches the detected task with the open PR's title.
-
-```sh
-gh auth login
-```
-
-### JIRA REST (ticket-title enrichment)
-
-```sh
-self-wiki config jira
-# JIRA base URL: https://liferay.atlassian.net
-# Env var holding the API token: JIRA_TOKEN
-```
-
-Then export the token in your shell — pulling it from your secrets manager of choice rather than hardcoding it. For example:
-
-```sh
-# plain export (least secure — token visible in shell history)
-export JIRA_TOKEN="<your-token>"
-
-# from a secrets manager (1Password, pass, Bitwarden, gnome-keyring, etc.)
-export JIRA_TOKEN="$(your-secrets-cli read <your-vault-item>)"
-```
-
-Self-wiki only reads `$JIRA_TOKEN` (or whatever env var you configured); how it gets there is up to you.
-
-Disable later with `self-wiki config jira --disable`.
 
 ## Daily commands
 
@@ -137,6 +197,40 @@ self-wiki config component auth-provider --keywords "AuthProvider,auth provider"
 
 Notes mentioning any keyword are then routed to `Components/auth-provider.md`.
 
+## Optional integrations
+
+Both are off by default. Self-wiki works fine without them.
+
+### `gh` CLI
+
+If `gh` is on your PATH and authenticated, `session open` enriches the detected task with the open PR's title.
+
+```sh
+gh auth login
+```
+
+### JIRA REST (ticket-title enrichment)
+
+```sh
+self-wiki config jira
+# JIRA base URL: https://liferay.atlassian.net
+# Env var holding the API token: JIRA_TOKEN
+```
+
+Then export the token in your shell — pulling it from your secrets manager of choice rather than hardcoding it. For example:
+
+```sh
+# plain export (least secure — token visible in shell history)
+export JIRA_TOKEN="<your-token>"
+
+# from a secrets manager (1Password, pass, Bitwarden, gnome-keyring, etc.)
+export JIRA_TOKEN="$(your-secrets-cli read <your-vault-item>)"
+```
+
+Self-wiki only reads `$JIRA_TOKEN` (or whatever env var you configured); how it gets there is up to you.
+
+Disable later with `self-wiki config jira --disable`.
+
 ## Configuration
 
 | Path                                       | Purpose                                                       |
@@ -168,3 +262,7 @@ self-wiki init /path/to/your/vault
 The CLI itself updates as soon as you re-link. The skill file at `~/.claude/skills/wiki/SKILL.md`, the hook entries, and the `permissions.allow` entries in `~/.claude/settings.json` are user-managed copies, so `init` refreshes them: it overwrites the skill (after asking), replaces existing `self-wiki` hook entries in place — no duplication, no double-firing — and adds any missing `Bash(self-wiki …)` allow rules without touching unrelated permissions. Both diffs (hooks + permissions) are shown before `settings.json` is mutated; review before confirming. Third-party hooks/permissions are left untouched. The vault itself is never clobbered on re-run.
 
 Re-running `init` after upgrading is a no-op when nothing changed, but it picks up new `Bash(self-wiki …)` permission rules (e.g. `close-orphans`) and refreshes the skill primer when the closing-summary phrase list grows. Daily logs, topic pages, and weekly reports are never touched.
+
+## License
+
+Apache 2.0. See [LICENSE](LICENSE) for the license text and [NOTICE](NOTICE) for copyright attribution.
