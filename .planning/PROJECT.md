@@ -25,18 +25,13 @@ A CLI + Claude Code skill + Claude Code hooks that turns every `claude` session 
 - ✓ **INIT-01** — `self-wiki init <vault>` scaffolds vault layout, installs skill, proposes hooks + permissions diff for `~/.claude/settings.json`, records vault path in user config. Idempotent. — existing
 - ✓ **CONFIG-01** — Vault config (`.self-wiki/config.json`) holds ticket regex, components, soft-close window. User config (`~/.config/self-wiki/config.json`) holds vault path + JIRA. Layered with `applyUserConfig()` at command startup. — existing
 - ✓ **CYCLE-PHASE1** — Phase 1 (Cycle Config & Vault Scaffold) shipped: `resolveCycle(date, cycleEndMonths)` deterministic helper in `src/core/cycles.js` (Liferay default `[5,9,12]` + portable cadences); `VAULT_DEFAULTS.review` block + `writeVaultConfig` deep-merge for `review` + `getVaultDefaults` → `structuredClone` (lifts latent shared-ref bug); `Reviews/` added to vault scaffold (`paths.js`, `init.js`, vault seed); `src/core/reviews.js#ensureReviewsDir(vaultPath)` for pre-existing vault migration. Substrate for milestone REVIEW-* requirements. **Note ID conflict:** Phase 1 referred to its milestone-internal CONFIG-01..03 / SCAFFOLD-01..02 in `.planning/REQUIREMENTS.md`; the legacy CONFIG-01 above is the v0.1 layer-config item. Disambiguate when refactoring REQUIREMENTS.md. — Validated in Phase 1. **Corrigendum (2026-05-08, Phase 3 D-PREREQ):** the shipped boundary calculation chained cycle1 across the year boundary, yielding a 5/4/3-month split for `[5,9,12]`; Phase 3 wave 1 fixes this with Option B (cycle1 always starts Jan 1; last cycle of year always ends Dec 31), restoring uniform 4-month cycles for Liferay's calendar. Tradeoff: alternate cadences like `[6,12]` are no longer guaranteed-uniform. See `.planning/phases/01-cycle-config-vault-scaffold/01-CONTEXT.md` corrigendum block and `src/core/cycles.js`.
+- ✓ **REVIEW-01..09** — Phase 3 (Self-Review Report) shipped: `self-wiki self-review` produces a draft at `Reviews/<YYYY>-cycle<N>.md` shaped to the three Liferay review questions, with accomplishments tagged by Liferay values (Produce Excellence, Lead by Serving, Value People, Grow & Get Better, Stay Nerdy), sourced from monthlies (primary) + weeklies (secondary) + topic pages (ground truth). Slice-1: bare invocation, --cycle / --last-cycle / --since / --prior-review / --dry-run / --force / --out flag matrix, refuse-without-force, soft-fail-to-dry-run on missing claude, vault-config writeback of `lastReviewedAt` + `lastReviewedCycle`. Slice-2: auto-backfill cascade for missing monthlies (single hoisted `hasClaudeCli` gate; preflight stderr "Monthlies needed:" summary). Prompt template at `src/templates/prompts/self-review.md` iterable like weekly/monthly. — Validated in Phase 3 (240/240 tests; 9/9 must-haves; 5/5 roadmap success criteria). **Carry-forward:** 1 BLOCKER (CR-01 TOCTOU race in refuse-without-force) + 6 warnings flagged by 03-REVIEW.md route to a future Phase 3.1 gap-closure pass. Three real-vault paste-readiness questions persist in `.planning/phases/03-self-review-report/03-HUMAN-UAT.md` until the user runs `self-wiki self-review --last-cycle` against their real Obsidian vault with `claude` on PATH.
 
 ### Active
 
 <!-- Current scope. Building toward these. Milestone: Liferay quarterly self-review report. -->
 
 - [ ] **MONTH-01** — Generate a monthly themed-synthesis report at `Reports/<YYYY-MM>.md` aggregating weekly reports + topic pages within a calendar month. Different prompt from weekly: surfaces themes / threads / recurring tickets / cross-week narrative, not session-by-session.
-- [ ] **REVIEW-01** — Generate a Liferay self-review draft at `Reviews/<YYYY>-cycle<N>.md` shaped to Liferay's three review questions: (1) accomplishments + what you're proud of, (2) what you'd have done differently, (3) "Grow & Get Better" focus and how it positively impacts your work.
-- [ ] **REVIEW-02** — Review-window boundary resolves via precedence: `--since <date>` flag overrides → `lastReviewedAt` in vault config → fall back to Liferay cycle calendar (cycles ending roughly May / September / December).
-- [ ] **REVIEW-03** — Section 1 (accomplishments) tags each accomplishment with the Liferay value(s) it embodies: Produce Excellence, Lead by Serving, Value People, Grow & Get Better, Stay Nerdy. Format: `**[Accomplishment]** — Produce Excellence, Grow & Get Better`.
-- [ ] **REVIEW-04** — Liferay cycle calendar lives in `.self-wiki/config.json` (e.g. `review.cycleEndMonths: [5, 9, 12]`) so cadence shifts (Liferay changing schedules, or different employer) need config edits, not code edits.
-- [ ] **REVIEW-05** — Generated review writes back `lastReviewedAt: <ISO date>` to vault config on success, so subsequent `self-wiki self-review` runs default to "since the last one I generated."
-- [ ] **REVIEW-06** — Self-review consumes monthly reports (primary narrative), weekly reports (secondary detail), and topic pages (ticket-by-ticket ground truth) — not raw daily logs (too granular for a 4-month window).
 
 ### Out of Scope
 
@@ -60,6 +55,8 @@ A CLI + Claude Code skill + Claude Code hooks that turns every `claude` session 
 **Why monthly first.** The monthly report is a building block. Generating a 4-month self-review directly off weekly reports works, but the model has to do narrative compression in two dimensions at once (within-month and across-month). Adding a monthly themed-synthesis layer means the self-review consumes already-themed monthly reports, with weekly and topic data as backing detail. Cleaner prompt, better output.
 
 **Phase 1 complete (2026-05-07).** Cycle helper + vault scaffold infrastructure landed; 141/141 tests pass on main. Ready for Phase 2 (monthly report) which can now consume `resolveCycle` for partial-window headers and Phase 3 (self-review) which consumes the full cycle calculus + `ensureReviewsDir` for pre-existing-vault migration.
+
+**Phase 3 complete (2026-05-11).** `self-wiki self-review` ships end-to-end: window resolution with 5-tier precedence, auto-backfill cascade through `reportMonthOrchestrator(month, {internal:true})`, prompt envelope MONTHLIES→WEEKLIES→TOPIC_PAGES with `## Sources` footer, vault-config writeback. 240/240 tests pass on main. Milestone v1.0 (Liferay quarterly self-review report) substrate is now feature-complete; a 3.1 gap-closure pass over `03-REVIEW.md` (TOCTOU on refuse-without-force; missing mutex; dry-run filesystem side-effects) plus a real-vault paste-readiness run against `03-HUMAN-UAT.md` are the remaining work to call the milestone shipped.
 
 ## Constraints
 
@@ -103,4 +100,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-07 after Phase 1 completion (cycle config + vault scaffold)*
+*Last updated: 2026-05-11 after Phase 3 completion (self-review report; milestone v1.0 substrate complete)*
