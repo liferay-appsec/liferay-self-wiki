@@ -603,9 +603,20 @@ export async function selfReviewOrchestrator(opts = {}) {
       manualPath: opts.priorReview,
       cycleEndMonths,
     });
-    const missingNote0 = missingMonths.length > 0
-      ? `Missing monthlies (would be backfilled in non-dry-run): ${missingMonths.join(', ')}.`
-      : null;
+    // WR-04: also surface missing weeklies in the WINDOW_NOTE so the
+    // user sees gaps inside already-present months (e.g. user manually
+    // deleted Reports/2026-W14.md but left Reports/2026-04.md).
+    const missingWeeks0 = weeks0.filter(
+      (w) => !weeklies0.some((wk) => wk.weekStr === w),
+    );
+    const note0Parts = [];
+    if (missingMonths.length > 0) {
+      note0Parts.push(`Missing monthlies (would be backfilled in non-dry-run): ${missingMonths.join(', ')}.`);
+    }
+    if (missingWeeks0.length > 0) {
+      note0Parts.push(`Missing weeklies: ${missingWeeks0.join(', ')}.`);
+    }
+    const missingNote0 = note0Parts.length > 0 ? note0Parts.join(' ') : null;
     const prompt0 = await buildSelfReviewPrompt({
       window,
       monthlies,
@@ -677,17 +688,32 @@ export async function selfReviewOrchestrator(opts = {}) {
     cycleEndMonths,
   });
 
-  // 8. Window note(s) — surface remaining missing monthlies. Under
-  //    slice 2 the cascade fires automatically; this note only appears
-  //    in two cases:
+  // 8. Window note(s) — surface remaining missing monthlies and weeklies.
+  //    Under slice 2 the cascade fires automatically; the monthly note
+  //    appears in two cases:
   //      - dry-run: "would be backfilled in non-dry-run" hint;
   //      - cascade ran but some months failed best-effort: "cascade
   //        attempted but some failed".
-  const missingMonthlyNote = missingMonths.length > 0
-    ? (opts.dryRun
-        ? `Missing monthlies (would be backfilled in non-dry-run): ${missingMonths.join(', ')}.`
-        : `Missing monthlies (cascade attempted but some failed): ${missingMonths.join(', ')}.`)
-    : null;
+  //    WR-04 also surfaces missing in-cycle weeklies (e.g. a weekly
+  //    deleted manually while its containing month is present, or
+  //    reportMonthOrchestrator's weekly cascade failed for some isoweek
+  //    inside a successfully backfilled month). The user gets a signal
+  //    rather than silent coverage gaps. Variable name preserved as
+  //    `missingMonthlyNote` because that is what buildSelfReviewPrompt's
+  //    parameter is called.
+  const missingWeeks = weeks.filter(
+    (w) => !weeklies.some((wk) => wk.weekStr === w),
+  );
+  const noteParts = [];
+  if (missingMonths.length > 0) {
+    noteParts.push(opts.dryRun
+      ? `Missing monthlies (would be backfilled in non-dry-run): ${missingMonths.join(', ')}.`
+      : `Missing monthlies (cascade attempted but some failed): ${missingMonths.join(', ')}.`);
+  }
+  if (missingWeeks.length > 0) {
+    noteParts.push(`Missing weeklies: ${missingWeeks.join(', ')}.`);
+  }
+  const missingMonthlyNote = noteParts.length > 0 ? noteParts.join(' ') : null;
 
   // 9. Build prompt.
   const prompt = await buildSelfReviewPrompt({
