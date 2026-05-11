@@ -20,6 +20,7 @@ import { updateTopicsCommand } from './commands/update-topics.js';
 import { configCommand } from './commands/config.js';
 import { nudgeCommand } from './commands/nudge.js';
 import { closeOrphansCommand } from './commands/close-orphans.js';
+import { selfReviewCommand } from './commands/self-review.js';
 
 const program = new Command();
 
@@ -90,6 +91,18 @@ program
   .option('--dry-run', 'print prompt instead of invoking claude -p')
   .option('-o, --out <path>', 'override output path')
   .action(reportCommand);
+
+program
+  .command('self-review')
+  .description('Generate a Liferay self-review draft for the most recently completed cycle.')
+  .option('--since <YYYY-MM-DD>', 'pin the start of the review window')
+  .option('--cycle <YYYY-cycleN>', 'explicit cycle name (e.g. 2026-cycle1)')
+  .option('--last-cycle', 'use the most recently completed cycle (default behavior; explicit flag for clarity)')
+  .option('--prior-review <path>', 'path to a markdown file with the prior review (manual continuity override)')
+  .option('--dry-run', 'print prompt instead of invoking claude -p')
+  .option('--force', 'overwrite an existing Reviews/<cycle>.md (default: refuse with an error)')
+  .option('-o, --out <path>', 'override output path')
+  .action(selfReviewCommand);
 
 program
   .command('update-topics')

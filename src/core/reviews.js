@@ -18,11 +18,14 @@
 //   - buildSelfReviewPrompt — REVIEW-06 + D-08 + D-13 (prompt envelope)
 // plus SELF_REVIEW_PROMPT_PATH alongside MONTHLY_PROMPT_PATH / WEEKLY_PROMPT_PATH.
 
-import { mkdir, readFile, readdir } from 'fs/promises';
-import { dirname, join, resolve } from 'path';
+import { mkdir, readFile, readdir, writeFile, access } from 'fs/promises';
+import { dirname, join, resolve, sep } from 'path';
 import { fileURLToPath } from 'url';
 import { resolveCycle } from './cycles.js';
-import { getReviewFilePath, getVaultPath } from '../utils/paths.js';
+import { readVaultConfig, writeVaultConfig } from './config.js';
+import { hasClaudeCli, claudeHeadless } from './claude.js';
+import { getReviewFilePath, getReportFilePath, getVaultPath, ensureParentDir } from '../utils/paths.js';
+import { monthsInRange, weeksInMonth, datesInMonth } from '../utils/format.js';
 import { escapeRegex } from '../utils/regex.js';
 
 export async function ensureReviewsDir(vaultPath) {
@@ -383,4 +386,214 @@ export async function buildSelfReviewPrompt(args) {
   }
 
   return parts.join('\n');
+}
+
+// ---------- Orchestrator (REVIEW-01 + REVIEW-08 + D-02 + D-03 + D-07) ----------
+//
+// Slice 1 (plan 03-05) — composes the four building blocks above plus the
+// writer. No auto-backfill of missing monthlies yet — that's plan 03-06.
+// Per CLAUDE.md "no other module writes to <vault>/Reviews/<*>.md" rule,
+// the writer lives here in reviews.js (this module owns the Reviews/ region).
+
+// Resolve a user-supplied --out path against the vault root. Mirrors the
+// report.js#resolveOutPath helper. The CLI may legitimately want to dump a
+// review draft to /tmp for inspection; warn loudly but do not block.
+function resolveOutPath(rawOut, defaultPath) {
+  if (!rawOut) return defaultPath;
+  const r = resolve(rawOut);
+  const vaultPrefix = resolve(getVaultPath()) + sep;
+  if (!r.startsWith(vaultPrefix)) {
+    process.stderr.write(`warn: --out path is outside the vault: ${r}\n`);
+  }
+  return r;
+}
+
+// Walk every ISO week that overlaps the cycle window. Reuses weeksInMonth
+// by iterating each in-cycle month and concatenating + dedup'ing — a week
+// spanning two months (e.g. the Mon-Fri-of-month-end Sat-Sun-of-next-month
+// pattern) appears in both months' weeksInMonth result.
+function weeksInRange(startISO, endISO) {
+  const months = monthsInRange(startISO, endISO);
+  const seen = new Set();
+  const weeks = [];
+  for (const m of months) {
+    for (const w of weeksInMonth(m)) {
+      if (!seen.has(w)) {
+        seen.add(w);
+        weeks.push(w);
+      }
+    }
+  }
+  return weeks;
+}
+
+// List every in-cycle ISO date (YYYY-MM-DD) — bounded by start/end inclusive.
+function datesInRange(startISO, endISO) {
+  const months = monthsInRange(startISO, endISO);
+  const all = [];
+  for (const m of months) {
+    for (const d of datesInMonth(m)) {
+      if (d >= startISO && d <= endISO) all.push(d);
+    }
+  }
+  return all;
+}
+
+/**
+ * Top-level orchestrator for `self-wiki self-review`.
+ *
+ * Slice 1 (plan 03-05) — no auto-backfill yet. Slice 2 (plan 03-06)
+ * adds the cascade.
+ *
+ * Flow:
+ *   1. Read vault config; resolve window via resolveReviewWindow.
+ *   2. Compute outPath (--out overrides default).
+ *   3. Refuse-without-force on existing file (D-03). Dry-run skips this.
+ *   4. Walk in-cycle months → load Reports/<YYYY-MM>.md (read-only).
+ *   5. Walk in-cycle weeks → load Reports/<YYYY-Www>.md (read-only).
+ *   6. Walk topic pages via loadInCycleTopicPages(in-cycle-dates).
+ *   7. Load prior review via loadPriorCycleReview.
+ *   8. Build the prompt envelope via buildSelfReviewPrompt.
+ *   9. If --dry-run: print prompt and return (D-07 strict).
+ *  10. If !hasClaudeCli: soft-fail to dry-run with stderr notice (REVIEW-08;
+ *      DIVERGENT from report.js which exit-2's).
+ *  11. Else: claudeHeadless(prompt) → write body to outPath (with regenerated
+ *      marker on --force overwrite) → writeVaultConfig({review: {...}}).
+ *
+ * @param {object} opts  Parsed Commander options:
+ *   { since?, cycle?, lastCycle?, priorReview?, dryRun?, force?, out? }
+ */
+export async function selfReviewOrchestrator(opts = {}) {
+  const cfg = await readVaultConfig();
+  const cycleEndMonths = cfg.review?.cycleEndMonths ?? [5, 9, 12];
+
+  // 1. Resolve window. resolveReviewWindow may throw for malformed --cycle
+  //    values; the command-layer wrapper (src/commands/self-review.js)
+  //    catches and surfaces those as exit-1 usage errors.
+  const window = resolveReviewWindow({
+    since: opts.since,
+    cycle: opts.cycle,
+    lastCycle: opts.lastCycle,
+    today: todayISO(),
+    vaultConfig: cfg,
+  });
+
+  // 2. Out path (D-13 — --out symmetry with monthly).
+  const defaultOut = getReviewFilePath(window.cycleName);
+  const outPath = resolveOutPath(opts.out, defaultOut);
+  await ensureReviewsDir(getVaultPath());
+
+  // 3. Refuse-without-force (D-03). Dry-run skips this — there is no write.
+  if (!opts.dryRun) {
+    let exists = false;
+    try { await access(outPath); exists = true; } catch { /* fresh */ }
+    if (exists && !opts.force) {
+      process.stderr.write(
+        `error: ${outPath} already exists. Use --force to regenerate (your edits will be lost; recover via 'git restore ${outPath}' if needed).\n`,
+      );
+      process.exit(1);
+    }
+  }
+
+  // 4. Load monthlies in-window. Slice 1 reads-only; Slice 2 adds backfill.
+  const months = monthsInRange(window.start, window.end);
+  const monthlies = [];
+  const missingMonths = [];
+  for (const monthStr of months) {
+    try {
+      const raw = await readFile(getReportFilePath(monthStr), 'utf8');
+      monthlies.push({ monthStr, raw });
+    } catch {
+      missingMonths.push(monthStr);
+    }
+  }
+
+  // 5. Load weeklies in-window (read-only; no backfill at this layer either).
+  const weeks = weeksInRange(window.start, window.end);
+  const weeklies = [];
+  for (const weekStr of weeks) {
+    try {
+      const raw = await readFile(getReportFilePath(weekStr), 'utf8');
+      weeklies.push({ weekStr, raw });
+    } catch {
+      // missing — silently skip; the Sources line will not list it.
+    }
+  }
+
+  // 6. Topic pages — every in-cycle date.
+  const dates = datesInRange(window.start, window.end);
+  const topicPages = await loadInCycleTopicPages(dates);
+
+  // 7. Prior-review continuity.
+  const priorReview = await loadPriorCycleReview({
+    cycleName: window.cycleName,
+    manualPath: opts.priorReview,
+    cycleEndMonths,
+  });
+
+  // 8. Window note(s) — surface missing monthlies as a hint to the user
+  //    (slice 2 will auto-backfill instead).
+  const missingMonthlyNote = missingMonths.length > 0
+    ? `Missing monthlies (consider running \`self-wiki report --month <YYYY-MM>\` first): ${missingMonths.join(', ')}.`
+    : null;
+
+  // 9. Build prompt.
+  const prompt = await buildSelfReviewPrompt({
+    window,
+    monthlies,
+    weeklies,
+    topicPages,
+    priorReview,
+    partialNote: window.partialNote,
+    missingMonthlyNote,
+  });
+
+  // 10. Dry-run: print and return (D-07 strict).
+  if (opts.dryRun) {
+    process.stdout.write(prompt + '\n');
+    return;
+  }
+
+  // 11. Soft-fail-to-dry-run on missing claude (REVIEW-08 + ROADMAP criterion 5).
+  //     DIVERGENT from reportMonthOrchestrator (which exit-2's). For self-review
+  //     we degrade rather than failing because review-time is high-friction:
+  //     the user wants the prompt either way.
+  if (!(await hasClaudeCli())) {
+    process.stderr.write(
+      'warn: `claude` CLI not found on PATH; printing prompt to stdout instead (dry-run mode).\n',
+    );
+    process.stdout.write(prompt + '\n');
+    return;
+  }
+
+  // 12. Synthesize.
+  process.stderr.write(`synthesizing self-review for ${window.cycleName}…\n`);
+  const body = await claudeHeadless(prompt);
+  const today = todayISO();
+
+  // 13. Write file. --force was validated earlier; if exists (overwrite path),
+  //     prepend a regenerated marker so the user can see at a glance this
+  //     replaced a prior draft.
+  let exists = false;
+  try { await access(outPath); exists = true; } catch { /* fresh */ }
+  let finalBody = body;
+  if (exists) {
+    finalBody = `<!-- regenerated ${today} -->\n\n${body}`;
+  }
+  if (!finalBody.endsWith('\n')) finalBody += '\n';
+
+  await ensureParentDir(outPath);
+  await writeFile(outPath, finalBody, 'utf8');
+  process.stdout.write(`wrote ${outPath}\n`);
+
+  // 14. Vault-config writeback (REVIEW-07 + D-02). Always — even on --since
+  //     and off-boundary runs, so the next bare invocation defaults correctly.
+  //     For off-boundary --since, the resolved window's cycleName is the
+  //     enclosing cycle (per D-04), which is what we persist.
+  await writeVaultConfig({
+    review: {
+      lastReviewedAt: today,
+      lastReviewedCycle: window.cycleName,
+    },
+  });
 }
