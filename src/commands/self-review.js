@@ -20,9 +20,17 @@ export async function selfReviewCommand(opts = {}) {
 
   // Mutex: at most ONE of {--since, --cycle, --last-cycle}. --prior-review
   // and --out are orthogonal and may co-exist with any of these.
-  const windowFlags = [opts.since, opts.cycle, opts.lastCycle].filter(
-    (v) => v !== undefined && v !== null && v !== false,
-  );
+  // Use an explicit truthiness check that matches the documented contract
+  // (string for --since/--cycle, true for --last-cycle) rather than a
+  // permissive `!== undefined && !== null && !== false` filter — an empty
+  // string would survive the permissive filter and count as "set", and the
+  // predicate's meaning would shift silently if Commander ever started
+  // emitting `false` for an absent boolean flag (WR-05).
+  const windowFlags = [
+    typeof opts.since === 'string' && opts.since.length > 0,
+    typeof opts.cycle === 'string' && opts.cycle.length > 0,
+    opts.lastCycle === true,
+  ].filter(Boolean);
   if (windowFlags.length > 1) {
     process.stderr.write('error: --since, --cycle, and --last-cycle are mutually exclusive\n');
     process.exit(1);
