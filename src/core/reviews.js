@@ -18,7 +18,7 @@
 //   - buildSelfReviewPrompt — REVIEW-06 + D-08 + D-13 (prompt envelope)
 // plus SELF_REVIEW_PROMPT_PATH alongside MONTHLY_PROMPT_PATH / WEEKLY_PROMPT_PATH.
 
-import { mkdir, readFile, readdir, writeFile, access } from 'fs/promises';
+import { mkdir, readFile, readdir, writeFile, access, open, unlink } from 'fs/promises';
 import { dirname, join, resolve, sep } from 'path';
 import { fileURLToPath } from 'url';
 import { resolveCycle } from './cycles.js';
@@ -482,10 +482,14 @@ export async function selfReviewOrchestrator(opts = {}) {
   // 2. Out path (D-13 — --out symmetry with monthly).
   const defaultOut = getReviewFilePath(window.cycleName);
   const outPath = resolveOutPath(opts.out, defaultOut);
-  await ensureReviewsDir(getVaultPath());
 
   // 3. Refuse-without-force (D-03). Dry-run skips this — there is no write.
+  //    ensureReviewsDir is hoisted INTO this block so --dry-run stays
+  //    side-effect-free on a fresh vault (WR-03 fix). ensureParentDir at the
+  //    actual write site (step 13) still creates the directory in the
+  //    real-write path.
   if (!opts.dryRun) {
+    await ensureReviewsDir(getVaultPath());
     let exists = false;
     try { await access(outPath); exists = true; } catch { /* fresh */ }
     if (exists && !opts.force) {
