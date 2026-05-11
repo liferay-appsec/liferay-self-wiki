@@ -28,6 +28,11 @@ export async function initCommand(vaultArg, opts = {}) {
   // (or three) --X-only flags collapses to "do all named, skip the rest"
   // per Phase 06 CONTEXT.md Claude's-Discretion-->-combinability.
   if (opts.hooksOnly || opts.permissionsOnly || opts.skillOnly) {
+    if (vaultArg) {
+      process.stderr.write(
+        `warning: --hooks-only / --permissions-only / --skill-only ignore the <vault-path> argument (${vaultArg}); skipping vault scaffold.\n`
+      );
+    }
     if (opts.skillOnly) {
       await installSkill(opts.yes);
     }
