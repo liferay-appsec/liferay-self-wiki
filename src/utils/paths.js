@@ -55,6 +55,10 @@ export function getReportFilePath(weekStr) {
   return join(getVaultPath(), 'Reports', `${weekStr}.md`);
 }
 
+export function getReviewFilePath(cycleName) {
+  return join(getVaultPath(), 'Reviews', `${cycleName}.md`);
+}
+
 export function getTicketFilePath(ticketId) {
   return join(getVaultPath(), 'Tickets', `${ticketId}.md`);
 }

@@ -119,6 +119,58 @@ export function weeksInMonth(monthStr) {
   return weeks;
 }
 
+function parseISODate(s) {
+  const m = typeof s === 'string' ? s.match(/^(\d{4})-(\d{2})-(\d{2})$/) : null;
+  if (!m) throw new Error(`Invalid date: ${s}`);
+  const year = parseInt(m[1], 10);
+  const month = parseInt(m[2], 10);
+  const day = parseInt(m[3], 10);
+  if (month < 1 || month > 12 || day < 1 || day > 31) {
+    throw new Error(`Invalid date: ${s}`);
+  }
+  // Re-construct via Date.UTC and verify round-trip — catches Feb 30, etc.
+  const d = new Date(Date.UTC(year, month - 1, day));
+  if (
+    d.getUTCFullYear() !== year ||
+    d.getUTCMonth() !== month - 1 ||
+    d.getUTCDate() !== day
+  ) {
+    throw new Error(`Invalid date: ${s}`);
+  }
+  return { year, month, day, date: d };
+}
+
+/**
+ * Return the ordered list of YYYY-MM strings for every calendar month
+ * that contains at least one day in the inclusive [startISO, endISO] range.
+ *
+ * Year-boundary crossings are handled. If startISO > endISO, returns []
+ * (caller responsibility — Phase 3's selfReviewOrchestrator validates
+ * the cycle window upstream).
+ *
+ * @param {string} startISO - YYYY-MM-DD
+ * @param {string} endISO   - YYYY-MM-DD
+ * @returns {string[]} YYYY-MM[] (ordered, no duplicates)
+ * @throws {Error} "Invalid date: <input>" on malformed input
+ */
+export function monthsInRange(startISO, endISO) {
+  const start = parseISODate(startISO);
+  const end = parseISODate(endISO);
+  if (start.date.getTime() > end.date.getTime()) return [];
+  const out = [];
+  let y = start.year;
+  let m = start.month;
+  while (y < end.year || (y === end.year && m <= end.month)) {
+    out.push(`${y}-${String(m).padStart(2, '0')}`);
+    m += 1;
+    if (m > 12) {
+      m = 1;
+      y += 1;
+    }
+  }
+  return out;
+}
+
 export function diffMinutes(startedAtIso, endedAt = new Date()) {
   const start = new Date(startedAtIso);
   const end = endedAt instanceof Date ? endedAt : new Date(endedAt);

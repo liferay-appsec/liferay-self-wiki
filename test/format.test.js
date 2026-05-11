@@ -10,6 +10,7 @@ import {
   priorMonth,
   weeksInMonth,
   diffMinutes,
+  monthsInRange,
 } from '../src/utils/format.js';
 
 test('formatHHMM zero-pads hours and minutes', () => {
@@ -145,4 +146,43 @@ test('weeksInMonth dedupes and preserves first-occurrence order', () => {
   assert.equal(weeks.length, new Set(weeks).size);
   // First entry is the week containing Apr 1.
   assert.equal(weeks[0], isoWeek(new Date('2026-04-01T00:00:00Z')));
+});
+
+// ---------------------------------------------------------------------------
+// monthsInRange (Phase 3) — drive the cycle-window monthly auto-backfill loop
+// ---------------------------------------------------------------------------
+test('monthsInRange returns the months overlapping a same-year window', () => {
+  assert.deepEqual(
+    monthsInRange('2026-01-01', '2026-04-30'),
+    ['2026-01', '2026-02', '2026-03', '2026-04'],
+  );
+});
+
+test('monthsInRange handles year-boundary crossing (Liferay cycle3 case)', () => {
+  assert.deepEqual(
+    monthsInRange('2025-12-15', '2026-04-30'),
+    ['2025-12', '2026-01', '2026-02', '2026-03', '2026-04'],
+  );
+});
+
+test('monthsInRange returns single month for same-day window', () => {
+  assert.deepEqual(monthsInRange('2026-04-30', '2026-04-30'), ['2026-04']);
+});
+
+test('monthsInRange returns two months for a mid-month-to-mid-month span', () => {
+  assert.deepEqual(
+    monthsInRange('2026-04-15', '2026-05-15'),
+    ['2026-04', '2026-05'],
+  );
+});
+
+test('monthsInRange returns [] when start > end', () => {
+  assert.deepEqual(monthsInRange('2026-04-30', '2026-04-01'), []);
+});
+
+test('monthsInRange throws on bad input format', () => {
+  assert.throws(() => monthsInRange('not-a-date', '2026-04-30'), /Invalid date/);
+  assert.throws(() => monthsInRange('2026-04-30', '2026-13-01'), /Invalid date/);
+  assert.throws(() => monthsInRange('2026-02-30', '2026-04-30'), /Invalid date/);
+  assert.throws(() => monthsInRange('2026/04/30', '2026-05-31'), /Invalid date/);
 });
