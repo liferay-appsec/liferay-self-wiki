@@ -262,7 +262,20 @@ async function loadInMonthTopicPages(monthStr) {
   return out;
 }
 
-async function reportMonthOrchestrator(opts) {
+// `internal: true` is set by selfReviewOrchestrator's auto-backfill loop
+// (Plan 03-06). In that mode, mirror reportWeekOrchestrator's behavior:
+//   - the stderr progress line is rephrased "backfilling <month>…" so a
+//     deep cascade (4 monthlies × N weeklies) reads coherently;
+//   - the `wrote <path>` stdout line is suppressed (the self-review
+//     orchestrator owns the user-visible final summary);
+//   - the inner hasClaudeCli() re-check is skipped — the caller gated
+//     upstream so a mid-loop crash on missing claude cannot leave partial
+//     state in the vault.
+// The inner weekly-cascade (lines below) STILL re-checks hasClaudeCli
+// independently, mirroring the standalone monthly path; that check is the
+// monthly orchestrator's own concern.
+export async function reportMonthOrchestrator(opts) {
+  const internal = opts.internal === true;
   const month = opts.month === true ? currentMonthUTC() : validateMonthOrExit(opts.month);
   const dates = datesInMonth(month);
   const weeks = weeksInMonth(month);
@@ -354,12 +367,16 @@ async function reportMonthOrchestrator(opts) {
     return;
   }
 
-  if (!(await hasClaudeCli())) {
+  // Skip the final-synthesis hasClaudeCli re-check when called from the
+  // self-review cascade — the caller's hoisted gate guarantees claude is
+  // available, and a second check here would only widen the partial-state
+  // window (hasClaudeCli is process-state, not pure).
+  if (!internal && !(await hasClaudeCli())) {
     process.stderr.write('error: `claude` CLI not found on PATH. Install Claude Code or run with --dry-run to print the prompt.\n');
     process.exit(2);
   }
 
-  process.stderr.write(`synthesizing ${month}…\n`);
+  process.stderr.write(`${internal ? 'backfilling' : 'synthesizing'} ${month}…\n`);
   const body = await claudeHeadless(prompt);
 
   const outPath = resolveOutPath(opts.out, getReportFilePath(month));
@@ -380,7 +397,9 @@ async function reportMonthOrchestrator(opts) {
   if (!finalBody.endsWith('\n')) finalBody += '\n';
 
   await writeFile(outPath, finalBody, 'utf8');
-  process.stdout.write(`wrote ${outPath}\n`);
+  if (!internal) {
+    process.stdout.write(`wrote ${outPath}\n`);
+  }
 }
 
 async function buildMonthlyPrompt({ month, metrics, weeklies, missingWeeks, topicPages, priorReport, partialNote }) {
