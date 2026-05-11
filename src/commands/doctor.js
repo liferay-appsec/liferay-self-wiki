@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 import { homedir } from 'os';
 import chalk from 'chalk';
 import { applyUserConfig, readUserConfig } from '../core/config.js';
-import { tryGetVaultPath } from '../utils/paths.js';
+import { tryGetVaultPath, getUserConfigFilePath } from '../utils/paths.js';
 import { hasClaudeCli } from '../core/claude.js';
 import { mergeHooks, describeHookDiff, isSelfWikiBlock } from './init.js';
 
@@ -63,17 +63,32 @@ export async function doctorCommand(opts = {}) {
   // ── Section 2: Vault ──────────────────────────────────────────────────
   process.stdout.write(chalk.bold('Vault') + '\n');
 
-  // Check 3: vault config present (readUserConfig is no-throw; null = absent)
+  // Check 3: vault config present
   //
   // REQ-INST-01 says the user config must be "present and readable".
   // readUserConfig() (src/core/config.js) is no-throw — on any read failure
   // (ENOENT, EACCES, parse error) it returns the USER_DEFAULTS shape with
-  // vaultPath: null. So a non-null vaultPath here implies the file was BOTH
-  // present AND readable — no separate fs.access(R_OK) probe is needed.
+  // vaultPath: null. That conflates "config file absent" with "config file
+  // present-but-unreadable/malformed", so probe the file separately and
+  // emit distinct remediations: scaffold-new vs. repair-existing.
   const userCfg = await readUserConfig();
   const vaultConfigured = userCfg.vaultPath !== null;
+  const cfgFile = getUserConfigFilePath();
+  let cfgFilePresent = false;
+  try {
+    await access(cfgFile);
+    cfgFilePresent = true;
+  } catch {
+    // ENOENT/EACCES → file effectively absent for our purposes.
+  }
   if (vaultConfigured) {
     pass('vault config present');
+  } else if (cfgFilePresent) {
+    fail(
+      'vault config present',
+      rel(cfgFile) + ' exists but vaultPath is unset/unreadable — fix the file or rerun `self-wiki init <vault>`'
+    );
+    failingCount++;
   } else {
     fail('vault config present', 'run `self-wiki init <vault>` to scaffold one');
     failingCount++;
