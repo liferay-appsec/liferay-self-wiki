@@ -45,22 +45,38 @@ function dayAfter(d) {
 }
 
 // Compute {name, start, end} for the cycle at sorted-array index `ordinalZero`
-// (0-based) whose review month falls in calendar year `reviewYear`.
-//   end   = last day of (cycleEndMonth - 1) of reviewYear   (D-03 contiguous coverage)
-//   start = day after the previous cycle's end             (D-03 contiguous coverage)
-// If ordinalZero === 0, the previous cycle is the LAST entry of the prior year.
+// (0-based) of `cycleEndMonths` for review year `reviewYear`.
+//
+// Option B semantic (D-PREREQ, user-confirmed 2026-05-08):
+//   `cycleEndMonths[i]` is the REVIEW month of cycle (i+1). Cycle bounds are:
+//     start = first day of `cycleEndMonths[i-1]`     (for i > 0)
+//     start = Jan 1 of reviewYear                    (for i === 0, special case)
+//     end   = last day of (cycleEndMonths[i] - 1)    (for i < len - 1)
+//     end   = Dec 31 of reviewYear                   (for i === len - 1, special case)
+//
+//   Both special cases break the "ends month-before-review-month" rule for
+//   the seam between Dec and Jan. They reflect the user's mental model that
+//   the December-cycle covers Sep-Dec and the January-1 boundary is a hard
+//   cycle-1 start, not a chained "day-after-prior-cycle-end".
+//
+// The function is purely arithmetic over `reviewYear`; year-wrap is handled
+// by `resolveCycle` at the level above (it picks `reviewYear` and
+// `prevReviewYear` and calls `cycleAt` twice).
 function cycleAt(reviewYear, ordinalZero, cycleEndMonths) {
-  const endMonth = cycleEndMonths[ordinalZero];
-  // end = last day of (endMonth - 1). Last-day-of-prior-month uses Date.UTC(year, endMonth - 1, 0)
-  // — but expressed via lastDayOfMonth where the second arg is the 1-indexed *target*
-  // month-of-end, i.e. (endMonth - 1).
-  const end = lastDayOfMonth(reviewYear, endMonth - 1);
+  const k = cycleEndMonths.length;
+  const isLast = ordinalZero === k - 1;
+  const isFirst = ordinalZero === 0;
+  const reviewMonth = cycleEndMonths[ordinalZero];
 
-  const prevOrdinalZero = ordinalZero === 0 ? cycleEndMonths.length - 1 : ordinalZero - 1;
-  const prevReviewYear = ordinalZero === 0 ? reviewYear - 1 : reviewYear;
-  const prevEndMonth = cycleEndMonths[prevOrdinalZero];
-  const prevEnd = lastDayOfMonth(prevReviewYear, prevEndMonth - 1);
-  const start = dayAfter(prevEnd);
+  // End: last cycle of year ends Dec 31 (special); otherwise last day of (reviewMonth - 1).
+  const end = isLast
+    ? lastDayOfMonth(reviewYear, 12)
+    : lastDayOfMonth(reviewYear, reviewMonth - 1);
+
+  // Start: cycle 0 starts Jan 1 (special); otherwise first day of prior cycle's review month.
+  const start = isFirst
+    ? new Date(Date.UTC(reviewYear, 0, 1))
+    : new Date(Date.UTC(reviewYear, cycleEndMonths[ordinalZero - 1] - 1, 1));
 
   const name = `${reviewYear}-cycle${ordinalZero + 1}`;
   return { name, start: isoDate(start), end: isoDate(end) };
@@ -69,16 +85,33 @@ function cycleAt(reviewYear, ordinalZero, cycleEndMonths) {
 /**
  * Compute the current and previous Liferay-style review cycles for a given date.
  *
+ * Option B semantic (D-PREREQ, user-confirmed 2026-05-08): `cycleEndMonths[i]`
+ * is the review month of cycle (i+1). Cycle 1 always starts Jan 1 of its
+ * review-year; the last cycle of the year always ends Dec 31 of its review-year.
+ * Non-last cycles end at last-day-of-(reviewMonth - 1); non-first cycles start
+ * at first-day-of-(prior-reviewMonth). The result: cycles partition each
+ * calendar year into contiguous (but not necessarily uniform-length) windows.
+ *
+ * For Liferay's `[5, 9, 12]`: cycle1 = Jan-Apr, cycle2 = May-Aug, cycle3 = Sep-Dec
+ * (uniform 4 months — the design target).
+ * For `[6, 12]`: cycle1 = Jan-May (5mo), cycle2 = Jun-Dec (7mo) — NOT uniform.
+ * For `[4, 8, 12]`: cycle1 = Jan-Mar (3mo), cycle2 = Apr-Jul (4mo), cycle3 = Aug-Dec (5mo)
+ * — also not uniform. To get uniform N-month cycles the user picks evenly-spaced
+ * review months whose last entry is 12 (e.g. `[4, 8, 12]` does NOT yield uniform 4mo
+ * under Option B; only schemes whose entries' deltas all equal `12 / k` and
+ * whose last entry IS 12 produce uniform cycles, which for k=3 means... none of the
+ * above. Uniformity is a Liferay-specific outcome under `[5, 9, 12]`).
+ *
  * @param {Date|string} date - Date object or ISO-8601 parseable string. Time component is discarded.
  * @param {number[]} cycleEndMonths - Sorted ascending array of distinct integers 1..12 marking
- *   the months in which a cycle's review happens. The cycle "ends" the last day of the month
- *   BEFORE its review month (contiguous coverage — every day belongs to exactly one cycle).
+ *   the review months. See semantic notes above for cycle bound derivation.
  * @returns {{
  *   current:  { name: string, start: string, end: string },
  *   previous: { name: string, start: string, end: string }
  * }}  All `start` / `end` values are ISO `YYYY-MM-DD` strings (UTC). `name` format is
- *     `<YYYY>-cycle<N>` where N is the 1-indexed position in `cycleEndMonths` and YYYY is
- *     the year in which that cycle's review month falls.
+ *     `<YYYY>-cycle<N>` where N is the 1-indexed position in `cycleEndMonths` and
+ *     YYYY is the calendar year of the cycle's end-date (which under Option B equals
+ *     `reviewYear` for every cycle since cycles never span a year boundary).
  * @throws {Error} message exactly: "cycleEndMonths must be a non-empty sorted array of integers 1–12"
  *   on any of: empty array, non-array, value <= 0, value > 12, duplicates, non-monotonic order, non-integers.
  */
@@ -88,47 +121,31 @@ export function resolveCycle(date, cycleEndMonths) {
   const m = today.getUTCMonth() + 1; // 1-indexed
   const y = today.getUTCFullYear();
 
-  // current = cycle whose cycleEndMonth is the smallest entry >= m, with one
-  // refinement reconciled from must_haves and D-03 contiguous coverage:
-  //
-  //   - When m equals the FIRST entry (i.e. cycle1's review month), `current`
-  //     stays cycle1 (D-04 explicit example: during May with [5,9,12], current
-  //     remains cycle1 because the user is writing cycle1's review).
-  //   - When m equals any LATER entry, that month is the start of the *next*
-  //     cycle's coverage per D-03 contiguous coverage. Example: with [5,9,12],
-  //     Sep 1 is the start of cycle3's coverage (per D-03 cycle3 = Sep 1 → Nov 30),
-  //     so on Sep 1 current=cycle3 — not cycle2. Mechanically: on m == cem[i] for
-  //     i > 0, advance to i+1 (with year-wrap to cycle1 of y+1 if past end).
-  //
-  // If m exceeds every entry, current is the FIRST entry of NEXT year (its review
-  // month falls next year; the cycle has already started its coverage this year).
+  // Find the cycle that contains month m within reviewYear y. Each cycle i
+  // spans [startMonth_i, endMonth_i] inclusive:
+  //   startMonth_i = i === 0 ? 1 : cycleEndMonths[i - 1]
+  //   endMonth_i   = i === k-1 ? 12 : cycleEndMonths[i] - 1
+  // The intervals partition months 1..12, so exactly one cycle matches.
+  const k = cycleEndMonths.length;
   let curOrdinalZero = -1;
-  for (let i = 0; i < cycleEndMonths.length; i++) {
-    if (cycleEndMonths[i] >= m) { curOrdinalZero = i; break; }
-  }
-  let curReviewYear;
-  if (curOrdinalZero === -1) {
-    curOrdinalZero = 0;
-    curReviewYear = y + 1;
-  } else if (curOrdinalZero > 0 && cycleEndMonths[curOrdinalZero] === m) {
-    // m exactly equals a non-first entry — we're already in the next cycle's
-    // coverage (D-03). Advance one slot, year-wrap if needed.
-    if (curOrdinalZero + 1 < cycleEndMonths.length) {
-      curOrdinalZero += 1;
-      curReviewYear = y;
-    } else {
-      curOrdinalZero = 0;
-      curReviewYear = y + 1;
+  for (let i = 0; i < k; i++) {
+    const startMonth = i === 0 ? 1 : cycleEndMonths[i - 1];
+    const endMonth = i === k - 1 ? 12 : cycleEndMonths[i] - 1;
+    if (m >= startMonth && m <= endMonth) {
+      curOrdinalZero = i;
+      break;
     }
-  } else {
-    curReviewYear = y;
   }
+  // Defensive: the partition covers 1..12, so curOrdinalZero is always >= 0.
+  // (If validateCycleEndMonths admits an empty array somehow, k=0 and we'd
+  // never set curOrdinalZero — but validate throws on empty input first.)
 
-  const current = cycleAt(curReviewYear, curOrdinalZero, cycleEndMonths);
+  const current = cycleAt(y, curOrdinalZero, cycleEndMonths);
 
-  // previous = step one back in the sorted array (year-wraps on index 0).
-  const prevOrdinalZero = curOrdinalZero === 0 ? cycleEndMonths.length - 1 : curOrdinalZero - 1;
-  const prevReviewYear = curOrdinalZero === 0 ? curReviewYear - 1 : curReviewYear;
+  // Previous cycle: step one back. If curOrdinalZero === 0, previous is
+  // cycle (k-1) of (y - 1).
+  const prevOrdinalZero = curOrdinalZero === 0 ? k - 1 : curOrdinalZero - 1;
+  const prevReviewYear = curOrdinalZero === 0 ? y - 1 : y;
   const previous = cycleAt(prevReviewYear, prevOrdinalZero, cycleEndMonths);
 
   return { current, previous };
