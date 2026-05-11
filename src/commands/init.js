@@ -27,7 +27,34 @@ export async function initCommand(vaultArg, opts = {}) {
   // skip vault scaffolding / user-config writes entirely. Combining two
   // (or three) --X-only flags collapses to "do all named, skip the rest"
   // per Phase 06 CONTEXT.md Claude's-Discretion-->-combinability.
+  //
+  // Intentionally do NOT call applyUserConfig() inside this branch — the
+  // three narrow steps (skill, hooks, permissions) write into ~/.claude/
+  // exclusively and have no vault dependency. Any future addition that
+  // touches the vault (e.g. writing into <vault>/.self-wiki/) MUST hoist
+  // applyUserConfig() above this block, otherwise getVaultPath() will
+  // throw with no obvious cause for a user who has a vault configured.
   if (opts.hooksOnly || opts.permissionsOnly || opts.skillOnly) {
+    if (vaultArg) {
+      process.stderr.write(
+        `warning: --hooks-only / --permissions-only / --skill-only ignore the <vault-path> argument (${vaultArg}); skipping vault scaffold.\n`
+      );
+    }
+    // Reject incoherent --X-only + --no-X combinations explicitly so the
+    // user knows their negation was meaningful. Without this, --no-hooks
+    // would be silently ignored inside --hooks-only.
+    if (opts.hooksOnly && opts.hooks === false) {
+      process.stderr.write('error: --hooks-only cannot be combined with --no-hooks\n');
+      process.exit(2);
+    }
+    if (opts.skillOnly && opts.skill === false) {
+      process.stderr.write('error: --skill-only cannot be combined with --no-skill\n');
+      process.exit(2);
+    }
+    if (opts.permissionsOnly && opts.permissions === false) {
+      process.stderr.write('error: --permissions-only cannot be combined with --no-permissions\n');
+      process.exit(2);
+    }
     if (opts.skillOnly) {
       await installSkill(opts.yes);
     }
