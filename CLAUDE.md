@@ -67,7 +67,9 @@ src/
 
 ## Testing locally
 
-There is no test suite yet (v0.1). Verify by:
+Tests live under `test/` and run with `npm test` (which executes `node --test test/*.test.js`). The suite covers config, format, log-parser, logger, nudge, paths, session, state, stop-detector, topics, metrics, report-month, reviews, self-review, and cycles — 15 test files, 240 tests on v1.0 close.
+
+For changes that benefit from end-to-end manual verification (hook integration, the init flow, real Claude Code session lifecycle), run:
 
 1. `npm link` in this directory.
 2. `self-wiki init /tmp/test-vault --yes --no-set-default` — vault scaffolds, skill installs, hooks merge. **Always pass `--no-set-default` for tmp/test vaults** — without it, `init` rewrites `~/.config/self-wiki/config.json#vaultPath` globally and breaks the user's real-vault session lifecycle (this bit Phase 1's acceptance harness).
