@@ -488,6 +488,10 @@ export async function selfReviewOrchestrator(opts = {}) {
   //    side-effect-free on a fresh vault (WR-03 fix). ensureParentDir at the
   //    actual write site (step 13) still creates the directory in the
   //    real-write path.
+  //    Note: this is a fast-path UX check — it refuses BEFORE the
+  //    multi-minute cascade so the user does not waste claude calls. The
+  //    actual race-safety guarantee comes from the atomic `writeFile` with
+  //    flag `'wx'` at step 13 (CR-01 fix); both checks must remain.
   if (!opts.dryRun) {
     await ensureReviewsDir(getVaultPath());
     let exists = false;
@@ -499,6 +503,40 @@ export async function selfReviewOrchestrator(opts = {}) {
       process.exit(1);
     }
   }
+
+  // 3a. Cross-process mutex (WR-01). Acquire a dot-lock at
+  //     <vault>/.self-wiki/self-review-<cycleName>.lock for the duration of
+  //     the cascade so two concurrent runs cannot interleave the multi-minute
+  //     claude synthesis path (a single cascade can spawn ~16 claude -p
+  //     invocations, so a duplicate cascade is genuinely expensive AND
+  //     produces last-write-wins state on Reviews/<cycle>.md +
+  //     writeVaultConfig). The dry-run path takes no lock — it is
+  //     read-only and safe to interleave.
+  //     Lock is held via O_EXCL (`open(path, 'wx')`) — a vanilla stdlib
+  //     primitive; no `proper-lockfile` dependency. Stale lock recovery is
+  //     manual: the stderr message tells the user where the file lives.
+  //     Acquired AFTER refuse-without-force so a refused run does not leave
+  //     a lock file behind (process.exit skips the `finally` cleanup).
+  let lockHandle = null;
+  const lockPath = join(getVaultPath(), '.self-wiki', `self-review-${window.cycleName}.lock`);
+  if (!opts.dryRun) {
+    await mkdir(join(getVaultPath(), '.self-wiki'), { recursive: true });
+    try {
+      lockHandle = await open(lockPath, 'wx');
+      await lockHandle.writeFile(`${process.pid} ${new Date().toISOString()}\n`);
+    } catch (err) {
+      if (err && err.code === 'EEXIST') {
+        process.stderr.write(
+          `error: another self-review run is in progress (lock: ${lockPath}). ` +
+          `If the prior run crashed, remove the lock file and retry.\n`,
+        );
+        process.exit(1);
+      }
+      throw err;
+    }
+  }
+
+  try {
 
   // 4. Load monthlies in-window. Slice 2 adds the auto-backfill cascade
   //    immediately after, gated by a single hoisted hasClaudeCli check.
@@ -678,19 +716,47 @@ export async function selfReviewOrchestrator(opts = {}) {
   const body = await claudeHeadless(prompt);
   const today = todayISO();
 
-  // 13. Write file. --force was validated earlier; if exists (overwrite path),
-  //     prepend a regenerated marker so the user can see at a glance this
-  //     replaced a prior draft.
+  // 13. Write file atomically (CR-01 fix). The early refuse-without-force
+  //     check at step 3 is a fast-path UX guard; race-safety comes from
+  //     `writeFile` with flag `'wx'` (O_EXCL) here. When `--force` is set,
+  //     use `'w'` to overwrite and prepend a regenerated marker.
+  //
+  //     Between step 3's access() and this write, a concurrent process or
+  //     `cp` could create outPath. Without `'wx'` we would silently
+  //     overwrite. With `'wx'`, EEXIST on a non-force run becomes the
+  //     refuse signal (mirroring the early check's stderr message).
   let exists = false;
   try { await access(outPath); exists = true; } catch { /* fresh */ }
   let finalBody = body;
-  if (exists) {
+  if (opts.force && exists) {
+    // --force overwrite: prepend the regenerated marker so the user can
+    // see at a glance this replaced a prior draft.
     finalBody = `<!-- regenerated ${today} -->\n\n${body}`;
   }
   if (!finalBody.endsWith('\n')) finalBody += '\n';
 
   await ensureParentDir(outPath);
-  await writeFile(outPath, finalBody, 'utf8');
+  try {
+    await writeFile(outPath, finalBody, { flag: opts.force ? 'w' : 'wx', encoding: 'utf8' });
+  } catch (err) {
+    if (err && err.code === 'EEXIST') {
+      // Race: file appeared between step 3 and step 13 (concurrent run,
+      // `cp`, `git restore`, etc.). Refuse rather than silently overwrite.
+      // process.exit skips the `finally` cleanup, so release the lock
+      // explicitly here.
+      if (lockHandle) {
+        await lockHandle.close().catch(() => {});
+        await unlink(lockPath).catch(() => {});
+        lockHandle = null;
+      }
+      process.stderr.write(
+        `error: ${outPath} already exists (raced with a concurrent writer). ` +
+        `Use --force to regenerate (your edits will be lost; recover via 'git restore ${outPath}' if needed).\n`,
+      );
+      process.exit(1);
+    }
+    throw err;
+  }
   process.stdout.write(`wrote ${outPath}\n`);
 
   // 14. Vault-config writeback (REVIEW-07 + D-02). Always — even on --since
@@ -703,4 +769,13 @@ export async function selfReviewOrchestrator(opts = {}) {
       lastReviewedCycle: window.cycleName,
     },
   });
+
+  } finally {
+    // Release the WR-01 dot-lock. The lock is only held in non-dry-run
+    // mode; closing a null handle would throw, so guard both ops.
+    if (lockHandle) {
+      await lockHandle.close().catch(() => {});
+      await unlink(lockPath).catch(() => {});
+    }
+  }
 }
