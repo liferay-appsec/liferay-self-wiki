@@ -7,6 +7,8 @@ import {
   ensureReviewsDir,
   resolveReviewWindow,
   loadPriorCycleReview,
+  loadInCycleTopicPages,
+  buildSelfReviewPrompt,
 } from '../src/core/reviews.js';
 
 let tmp;
@@ -248,4 +250,163 @@ test('loadPriorCycleReview: auto-detect with no prior file → null', async () =
     cycleEndMonths: [5, 9, 12],
   });
   assert.equal(r, null);
+});
+
+// ---------------------------------------------------------------------------
+// loadInCycleTopicPages — REVIEW-05 + D-08
+// ---------------------------------------------------------------------------
+
+test('loadInCycleTopicPages: surfaces topic pages with in-cycle ## date headers', async () => {
+  // Use the same global.__reviewVault from the earlier setup.
+  const vault = global.__reviewVault;
+  mkdirSync(join(vault, 'Tickets'), { recursive: true });
+  mkdirSync(join(vault, 'Components'), { recursive: true });
+  writeFileSync(join(vault, 'Tickets', 'LPD-12345.md'),
+    '# LPD-12345\n\n## 2026-02-15 — Session 1\n- worked\n', 'utf8');
+  writeFileSync(join(vault, 'Tickets', 'LPD-OTHER.md'),
+    '# LPD-OTHER\n\n## 2024-01-01 — Session 1\n- old\n', 'utf8');
+  writeFileSync(join(vault, 'Components', 'wiki.md'),
+    '# wiki\n\n## 2026-03-22 — Session 2\n- worked\n', 'utf8');
+
+  const cycleDates = ['2026-02-15', '2026-02-16', '2026-03-22'];
+  const out = await loadInCycleTopicPages(cycleDates);
+
+  const slugs = out.map((p) => p.slug).sort();
+  assert.deepEqual(slugs, ['LPD-12345', 'wiki']);
+  assert.equal(out.find((p) => p.slug === 'LPD-12345').kind, 'ticket');
+  assert.equal(out.find((p) => p.slug === 'wiki').kind, 'component');
+});
+
+test('loadInCycleTopicPages: returns [] when dates is empty or missing dirs', async () => {
+  assert.deepEqual(await loadInCycleTopicPages([]), []);
+  assert.deepEqual(await loadInCycleTopicPages(null), []);
+});
+
+// ---------------------------------------------------------------------------
+// buildSelfReviewPrompt — REVIEW-06 + REVIEW-09 + D-08 + D-13
+// ---------------------------------------------------------------------------
+
+test('buildSelfReviewPrompt: emits CYCLE, MONTHLIES (primary), WEEKLIES (secondary), TOPIC_PAGES blocks in order', async () => {
+  const out = await buildSelfReviewPrompt({
+    window: { cycleName: '2026-cycle1', start: '2026-01-01', end: '2026-04-30' },
+    monthlies: [
+      { monthStr: '2026-01', raw: '# Jan\nstuff' },
+      { monthStr: '2026-02', raw: '# Feb\nmore' },
+    ],
+    weeklies: [{ weekStr: '2026-W14', raw: '# W14\nweek body' }],
+    topicPages: [{ slug: 'LPD-12345', raw: '# Ticket', kind: 'ticket' }],
+    priorReview: null,
+  });
+  assert.match(out, /CYCLE: 2026-cycle1 \(2026-01-01 → 2026-04-30\)/);
+  assert.match(out, /MONTHLIES: \(primary — use as the spine\)/);
+  assert.match(out, /WEEKLIES: \(secondary — for detail when monthly is thin\)/);
+  assert.match(out, /TOPIC_PAGES: \(ticket\/component ground truth\)/);
+  // Order: MONTHLIES must appear before WEEKLIES, which must appear before TOPIC_PAGES.
+  const iM = out.indexOf('MONTHLIES:');
+  const iW = out.indexOf('WEEKLIES:');
+  const iT = out.indexOf('TOPIC_PAGES:');
+  assert.ok(iM < iW && iW < iT, `expected order MONTHLIES < WEEKLIES < TOPIC_PAGES; got ${iM}, ${iW}, ${iT}`);
+  // Per-input separators present.
+  assert.match(out, /## --- 2026-01 ---/);
+  assert.match(out, /## --- 2026-02 ---/);
+  assert.match(out, /## --- 2026-W14 ---/);
+  assert.match(out, /## --- LPD-12345 ---/);
+  // Sources line surfaces files.
+  assert.match(out, /Reports\/2026-01\.md/);
+  assert.match(out, /Reports\/2026-02\.md/);
+  assert.match(out, /Reports\/2026-W14\.md/);
+  assert.match(out, /Tickets\/LPD-12345\.md/);
+});
+
+test('buildSelfReviewPrompt: emits empty placeholders when monthlies/weeklies/topics are empty', async () => {
+  const out = await buildSelfReviewPrompt({
+    window: { cycleName: '2026-cycle1', start: '2026-01-01', end: '2026-04-30' },
+    monthlies: [],
+    weeklies: [],
+    topicPages: [],
+    priorReview: null,
+  });
+  assert.match(out, /\(no monthlies for this cycle\)/);
+  assert.match(out, /\(no weeklies for this cycle\)/);
+  assert.match(out, /\(no in-cycle topic pages\)/);
+  assert.match(out, /Sources: Monthlies: \(none\)\. Weeklies: \(none\)\./);
+});
+
+test('buildSelfReviewPrompt: emits PRIOR_REVIEW block on manual override', async () => {
+  const out = await buildSelfReviewPrompt({
+    window: { cycleName: '2026-cycle1', start: '2026-01-01', end: '2026-04-30' },
+    monthlies: [],
+    weeklies: [],
+    topicPages: [],
+    priorReview: { kind: 'manual', path: '/tmp/old.md', body: 'old review body content' },
+  });
+  assert.match(out, /PRIOR_REVIEW:/);
+  assert.match(out, /old review body content/);
+  assert.ok(!out.includes('PRIOR_GROWTH_FOCUS'));
+});
+
+test('buildSelfReviewPrompt: emits PRIOR_GROWTH_FOCUS on auto-detect with non-empty Q3', async () => {
+  const out = await buildSelfReviewPrompt({
+    window: { cycleName: '2026-cycle1', start: '2026-01-01', end: '2026-04-30' },
+    monthlies: [],
+    weeklies: [],
+    topicPages: [],
+    priorReview: { kind: 'autoQ3', path: '/v/Reviews/2025-cycle3.md', body: '## 3. Growth\n- TDD focus', priorCycleName: '2025-cycle3' },
+  });
+  assert.match(out, /PRIOR_GROWTH_FOCUS \(2025-cycle3\):/);
+  assert.match(out, /TDD focus/);
+  assert.ok(!out.includes('PRIOR_REVIEW:'));
+});
+
+test('buildSelfReviewPrompt: WINDOW_NOTE emitted when partialNote provided (D-04)', async () => {
+  const out = await buildSelfReviewPrompt({
+    window: { cycleName: '2026-cycle1', start: '2026-02-15', end: '2026-04-30' },
+    monthlies: [],
+    weeklies: [],
+    topicPages: [],
+    priorReview: null,
+    partialNote: 'Custom window 2026-02-15 → 2026-04-30; report covers a partial slice of 2026-cycle1.',
+  });
+  assert.match(out, /WINDOW_NOTE:/);
+  assert.match(out, /partial slice of 2026-cycle1/);
+});
+
+test('buildSelfReviewPrompt: WINDOW_NOTE concatenates partialNote and missingMonthlyNote', async () => {
+  const out = await buildSelfReviewPrompt({
+    window: { cycleName: '2026-cycle1', start: '2026-01-01', end: '2026-04-30' },
+    monthlies: [],
+    weeklies: [],
+    topicPages: [],
+    priorReview: null,
+    partialNote: 'Partial window note here.',
+    missingMonthlyNote: 'Missing monthlies note here.',
+  });
+  assert.match(out, /WINDOW_NOTE:/);
+  assert.match(out, /Partial window note here/);
+  assert.match(out, /Missing monthlies note here/);
+});
+
+test('buildSelfReviewPrompt: METRICS block only emitted when metrics provided', async () => {
+  const without = await buildSelfReviewPrompt({
+    window: { cycleName: '2026-cycle1', start: '2026-01-01', end: '2026-04-30' },
+    monthlies: [], weeklies: [], topicPages: [], priorReview: null,
+  });
+  assert.ok(!without.includes('METRICS:'));
+  const withM = await buildSelfReviewPrompt({
+    window: { cycleName: '2026-cycle1', start: '2026-01-01', end: '2026-04-30' },
+    monthlies: [], weeklies: [], topicPages: [], priorReview: null,
+    metrics: '- Sessions: 12\n- Tickets: 5',
+  });
+  assert.match(withM, /METRICS:\n- Sessions: 12/);
+});
+
+test('buildSelfReviewPrompt: prompt header from self-review.md is included', async () => {
+  const out = await buildSelfReviewPrompt({
+    window: { cycleName: '2026-cycle1', start: '2026-01-01', end: '2026-04-30' },
+    monthlies: [], weeklies: [], topicPages: [], priorReview: null,
+  });
+  // Top of self-review.md says "# Self-review synthesis prompt" and "Liferay values".
+  assert.match(out, /# Self-review synthesis prompt/);
+  assert.match(out, /## Liferay values/);
+  assert.match(out, /Produce Excellence/);
 });
