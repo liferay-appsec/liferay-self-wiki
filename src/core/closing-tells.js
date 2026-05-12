@@ -1,9 +1,6 @@
-// Phrases that signal "this turn is a wrap-up; if no `self-wiki note` landed
-// during the turn, it's worth nudging the model on its next prompt".
-//
-// Keep this list in sync with the prose form in src/templates/skill/SKILL.md
-// and src/commands/nudge.js. The regex form here drives the second-chance
-// detector; the prose forms there steer the model's primary instinct.
+// Keep in sync with the prose forms in src/templates/skill/SKILL.md and
+// src/commands/nudge.js — regex form here drives the second-chance
+// detector, prose forms there steer the model's primary instinct.
 
 const PHRASES = [
   /\b(?:done|complete(?:d)?|finished|landed|wrapped up|wrapping up)\b/i,
@@ -19,9 +16,7 @@ const PHRASES = [
   /\bnothing (?:left|more) to do\b/i,
 ];
 
-// Three-or-more bullet-list lines in a single message — a multi-bullet wrap-up
-// pattern that often accompanies "I had finished the implementation. The four
-// planned changes are in place …".
+// Three-or-more bullets in a row — a multi-bullet wrap-up pattern.
 const BULLET_LIST = /(?:^|\n)\s*[-*]\s+\S.*(?:\n\s*[-*]\s+\S.*){2,}/m;
 
 export function looksLikeClosingSummary(text) {

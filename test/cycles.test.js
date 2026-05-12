@@ -2,13 +2,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveCycle } from '../src/core/cycles.js';
 
-// ---------------------------------------------------------------------------
-// Liferay default [5, 9, 12] under Option B — uniform 4-month cycles.
-//   cycle1 = Jan 1 -> Apr 30 (review May)
-//   cycle2 = May 1 -> Aug 31 (review Sep)
-//   cycle3 = Sep 1 -> Dec 31 (review Dec / early Jan)
-// ---------------------------------------------------------------------------
-
 test('resolveCycle Liferay [5,9,12] — Jan 1 2026 is start of 2026-cycle1', () => {
   const r = resolveCycle(new Date('2026-01-01T00:00:00Z'), [5, 9, 12]);
   assert.deepEqual(r.current, { name: '2026-cycle1', start: '2026-01-01', end: '2026-04-30' });
@@ -62,20 +55,11 @@ test('resolveCycle Liferay [5,9,12] — Jan 1 2027 starts 2027-cycle1 (year-wrap
   assert.deepEqual(r.previous, { name: '2026-cycle3', start: '2026-09-01', end: '2026-12-31' });
 });
 
-// ---------------------------------------------------------------------------
-// Year-wrap previous (D-11 explicit example)
-// ---------------------------------------------------------------------------
-
 test('resolveCycle Liferay [5,9,12] — Jan 5 2026 previous wraps to 2025-cycle3', () => {
   const r = resolveCycle(new Date('2026-01-05T00:00:00Z'), [5, 9, 12]);
   assert.equal(r.current.name, '2026-cycle1');
   assert.deepEqual(r.previous, { name: '2025-cycle3', start: '2025-09-01', end: '2025-12-31' });
 });
-
-// ---------------------------------------------------------------------------
-// Alternate cadences — semi-annual [6,12] and annual [12].
-// [6,12] under Option B is non-uniform (5mo + 7mo) — accepted Liferay-shape tradeoff.
-// ---------------------------------------------------------------------------
 
 test('resolveCycle [6,12] semi-annual under Option B yields 5mo + 7mo (NOT uniform)', () => {
   const may = resolveCycle(new Date('2026-05-15T00:00:00Z'), [6, 12]);
@@ -92,10 +76,6 @@ test('resolveCycle [12] annual yields single 12-month cycle', () => {
   assert.deepEqual(r.current, { name: '2026-cycle1', start: '2026-01-01', end: '2026-12-31' });
   assert.deepEqual(r.previous, { name: '2025-cycle1', start: '2025-01-01', end: '2025-12-31' });
 });
-
-// ---------------------------------------------------------------------------
-// Date-input parity — accept Date OR ISO string
-// ---------------------------------------------------------------------------
 
 test('resolveCycle accepts ISO string in addition to Date object', () => {
   const fromString = resolveCycle('2026-05-15', [5, 9, 12]);

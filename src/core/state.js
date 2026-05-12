@@ -10,9 +10,8 @@ import {
 // Slot shape: { status, dateStr, sessionNumber, task, ticketId, branch, cwd,
 //   repo, prNumber, claudeSessionId, startedAt, closedAt, nudgedAt?,
 //   pendingNudge?, lastBlockedTurnId? }
-// `lastBlockedTurnId` is the assistant leaf UUID of the most recent turn for
-// which `session close --soft --block-on-tell` already emitted a Stop-block;
-// used to prevent re-blocking the same turn (no built-in stop_hook_active).
+// lastBlockedTurnId is the assistant leaf UUID of the most recent turn the
+// Stop hook has already blocked; used to avoid re-blocking the same turn.
 
 export async function readSession(claudeSessionId) {
   try {

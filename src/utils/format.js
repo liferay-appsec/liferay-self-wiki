@@ -15,11 +15,8 @@ export function formatDuration(minutes) {
 
 export function isoWeek(date = new Date()) {
   // Read components via getUTC* so callers passing a UTC-anchored Date
-  // (e.g. weeksInMonth's `new Date('YYYY-MM-DDT00:00:00Z')`) do not have
-  // their calendar date shifted by a negative-offset local TZ before the
-  // ISO week math runs. Mixing local-tz reads with UTC arithmetic was the
-  // long-standing W52 ↔ W53 boundary bug that priorIsoWeek has its own
-  // workaround for.
+  // do not have their calendar date shifted by a negative-offset local TZ
+  // before the ISO week math runs (W52/W53 boundary bug).
   const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
   const dayNum = d.getUTCDay() || 7;
   d.setUTCDate(d.getUTCDate() + 4 - dayNum);
@@ -34,16 +31,13 @@ export function priorIsoWeek(weekStr) {
   const year = parseInt(m[1], 10);
   const week = parseInt(m[2], 10);
   if (week > 1) return `${year}-W${String(week - 1).padStart(2, '0')}`;
-  // Year boundary: walk from Mon of W1 of `year` back 7 days, then derive the
-  // ISO week of that Monday. Computed entirely in UTC to avoid the local-tz
-  // bug in isoWeek that flips W53 ↔ W52 around year boundaries.
+  // Year boundary: walk Mon of W1 back 7 days, then derive that Monday's ISO
+  // week. UTC throughout to avoid the W53↔W52 local-tz bug.
   const jan4 = new Date(Date.UTC(year, 0, 4));
   const jan4Day = jan4.getUTCDay() || 7;
   const monW1 = new Date(jan4);
   monW1.setUTCDate(jan4.getUTCDate() - jan4Day + 1);
   monW1.setUTCDate(monW1.getUTCDate() - 7);
-  // monW1 now = Monday of the prior ISO week (in year-1).
-  // Compute its week number: Thursday of that week determines the ISO year.
   const thu = new Date(monW1);
   thu.setUTCDate(monW1.getUTCDate() + 3);
   const isoYear = thu.getUTCFullYear();
@@ -86,9 +80,7 @@ function parseYYYYMM(monthStr) {
 
 export function datesInMonth(monthStr) {
   const { year, month } = parseYYYYMM(monthStr);
-  // Day 0 of (month + 1, 1-indexed) === last day of `month`. JS Date.UTC's
-  // monthIdx is 0-indexed, so passing `month` (the 1-indexed human month)
-  // already refers to the *next* month; day 0 of next month yields the
+  // Day 0 of (1-indexed month + 1, passed to JS as 0-indexed) yields the
   // last day of the requested month.
   const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
   const dates = [];
@@ -128,7 +120,8 @@ function parseISODate(s) {
   if (month < 1 || month > 12 || day < 1 || day > 31) {
     throw new Error(`Invalid date: ${s}`);
   }
-  // Re-construct via Date.UTC and verify round-trip — catches Feb 30, etc.
+  // Round-trip via Date.UTC catches things like Feb 30 that pass the
+  // length-and-range checks above.
   const d = new Date(Date.UTC(year, month - 1, day));
   if (
     d.getUTCFullYear() !== year ||
@@ -140,19 +133,6 @@ function parseISODate(s) {
   return { year, month, day, date: d };
 }
 
-/**
- * Return the ordered list of YYYY-MM strings for every calendar month
- * that contains at least one day in the inclusive [startISO, endISO] range.
- *
- * Year-boundary crossings are handled. If startISO > endISO, returns []
- * (caller responsibility — Phase 3's selfReviewOrchestrator validates
- * the cycle window upstream).
- *
- * @param {string} startISO - YYYY-MM-DD
- * @param {string} endISO   - YYYY-MM-DD
- * @returns {string[]} YYYY-MM[] (ordered, no duplicates)
- * @throws {Error} "Invalid date: <input>" on malformed input
- */
 export function monthsInRange(startISO, endISO) {
   const start = parseISODate(startISO);
   const end = parseISODate(endISO);

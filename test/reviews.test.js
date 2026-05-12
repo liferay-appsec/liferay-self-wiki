@@ -134,10 +134,6 @@ test('resolveReviewWindow: throws when vault config lacks review.cycleEndMonths'
   );
 });
 
-// ---------------------------------------------------------------------------
-// loadPriorCycleReview — D-12 (manual override wins; auto-detects Q3)
-// ---------------------------------------------------------------------------
-
 test('loadPriorCycleReview: manual path wins over auto-detect (D-12)', async () => {
   const manualPath = join(global.__reviewVault, 'manual.md');
   writeFileSync(manualPath, '# Old Review\n\n## 3. Growth\n- focus on testing\n', 'utf8');
@@ -217,10 +213,6 @@ test('loadPriorCycleReview: auto-detect with no prior file → null', async () =
   assert.equal(r, null);
 });
 
-// ---------------------------------------------------------------------------
-// loadInCycleTopicPages — REVIEW-05 + D-08
-// ---------------------------------------------------------------------------
-
 test('loadInCycleTopicPages: surfaces topic pages with in-cycle ## date headers', async () => {
   // Use the same global.__reviewVault from the earlier setup.
   const vault = global.__reviewVault;
@@ -246,10 +238,6 @@ test('loadInCycleTopicPages: returns [] when dates is empty or missing dirs', as
   assert.deepEqual(await loadInCycleTopicPages([]), []);
   assert.deepEqual(await loadInCycleTopicPages(null), []);
 });
-
-// ---------------------------------------------------------------------------
-// buildSelfReviewPrompt — REVIEW-06 + REVIEW-09 + D-08 + D-13
-// ---------------------------------------------------------------------------
 
 test('buildSelfReviewPrompt: emits CYCLE, MONTHLIES (primary), WEEKLIES (secondary), TOPIC_PAGES blocks in order', async () => {
   const out = await buildSelfReviewPrompt({

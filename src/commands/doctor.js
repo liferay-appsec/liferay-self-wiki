@@ -25,22 +25,19 @@ export async function doctorCommand(opts = {}) {
 
   let failingCount = 0;
 
-  // Read ~/.claude/settings.json once (ENOENT-tolerant; matches init.js pattern).
   let settings = {};
   try {
     settings = JSON.parse(await readFile(SETTINGS_DEST, 'utf8'));
   } catch (err) {
     if (err.code !== 'ENOENT') {
-      // Corrupt JSON / permission error — treat as empty so hooks + perms ✗.
-      // Surface why with a dim line so a user knows it isn't just missing.
+      // Corrupt JSON / permission error — surface why so the user knows it
+      // isn't just missing, then continue with an empty settings shape.
       process.stdout.write(`  ${chalk.dim('i')} could not read ${rel(SETTINGS_DEST)}: ${err.message}\n`);
     }
   }
 
-  // ── Section 1: Runtime ────────────────────────────────────────────────
   process.stdout.write(chalk.bold('Runtime') + '\n');
 
-  // Check 1: Node ≥ 20
   const nodeMajor = parseInt(process.versions.node.split('.')[0], 10);
   if (nodeMajor >= 20) {
     pass('Node ≥ 20');
@@ -49,7 +46,6 @@ export async function doctorCommand(opts = {}) {
     failingCount++;
   }
 
-  // Check 2: claude CLI on PATH (soft-dep: never throws — hasClaudeCli wraps it)
   const claudePresent = await hasClaudeCli();
   if (claudePresent) {
     pass('claude CLI on PATH');
@@ -60,17 +56,11 @@ export async function doctorCommand(opts = {}) {
 
   process.stdout.write('\n');
 
-  // ── Section 2: Vault ──────────────────────────────────────────────────
   process.stdout.write(chalk.bold('Vault') + '\n');
 
-  // Check 3: vault config present
-  //
-  // REQ-INST-01 says the user config must be "present and readable".
-  // readUserConfig() (src/core/config.js) is no-throw — on any read failure
-  // (ENOENT, EACCES, parse error) it returns the USER_DEFAULTS shape with
-  // vaultPath: null. That conflates "config file absent" with "config file
-  // present-but-unreadable/malformed", so probe the file separately and
-  // emit distinct remediations: scaffold-new vs. repair-existing.
+  // readUserConfig is no-throw — it returns the default shape on any read
+  // failure, conflating "absent" with "present-but-malformed". Probe the
+  // file separately so the two cases get distinct remediations.
   const userCfg = await readUserConfig();
   const vaultConfigured = userCfg.vaultPath !== null;
   const cfgFile = getUserConfigFilePath();
@@ -79,7 +69,7 @@ export async function doctorCommand(opts = {}) {
     await access(cfgFile);
     cfgFilePresent = true;
   } catch {
-    // ENOENT/EACCES → file effectively absent for our purposes.
+    /* file effectively absent */
   }
   if (vaultConfigured) {
     pass('vault config present');
@@ -94,10 +84,6 @@ export async function doctorCommand(opts = {}) {
     failingCount++;
   }
 
-  // Check 4: vault path exists on disk
-  // Use tryGetVaultPath() — applyUserConfig() above will have called setVaultPath()
-  // if vaultPath was non-null. If not configured, the path-on-disk check trivially
-  // fails with a remediation that re-references the vault setup.
   const vaultPath = tryGetVaultPath();
   let vaultExists = false;
   if (vaultPath) {
@@ -116,12 +102,8 @@ export async function doctorCommand(opts = {}) {
 
   process.stdout.write('\n');
 
-  // ── Section 3: Claude Code wiring ─────────────────────────────────────
   process.stdout.write(chalk.bold('Claude Code wiring') + '\n');
 
-  // Check 5: hooks merged in settings.json
-  // Tier 1: each of HOOK_EVENTS has at least one block where a hooks[].command
-  //         matches /(?:^|\s)self-wiki\s/ (i.e. isSelfWikiBlock).
   const currentHooks = settings.hooks ?? {};
   const missingHookEvents = HOOK_EVENTS.filter((event) => {
     const blocks = currentHooks[event] ?? [];
@@ -135,8 +117,6 @@ export async function doctorCommand(opts = {}) {
     failingCount++;
   }
 
-  // Check 6: permissions merged in settings.json
-  // Tier 1: at least one entry in permissions.allow starts with `Bash(self-wiki `.
   const currentAllow = settings?.permissions?.allow ?? [];
   const permissionsPresent = currentAllow.some(
     (entry) => typeof entry === 'string' && entry.startsWith(PERMISSIONS_PREFIX)
@@ -148,8 +128,6 @@ export async function doctorCommand(opts = {}) {
     failingCount++;
   }
 
-  // Check 7: wiki skill installed (Tier 1 only — content drift omitted per
-  // CONTEXT "Claude's Discretion → Skill-file content drift" recommendation).
   const skillExists = await fileExists(SKILL_DEST);
   if (skillExists) {
     pass('wiki skill installed');
@@ -158,13 +136,11 @@ export async function doctorCommand(opts = {}) {
     failingCount++;
   }
 
-  // Tier 2 drift lines — informational, never flip exit code.
   await emitHooksDrift(settings);
   await emitPermissionsDrift(settings);
 
   process.stdout.write('\n');
 
-  // ── Summary ───────────────────────────────────────────────────────────
   const passingCount = 7 - failingCount;
   if (failingCount === 0) {
     process.stdout.write(`summary: 7/7 passing\n`);
@@ -180,8 +156,6 @@ export async function doctorCommand(opts = {}) {
   return { failingCount };
 }
 
-// ── helpers ────────────────────────────────────────────────────────────
-
 function pass(label) {
   process.stdout.write(`  ${chalk.green('✓')} ${label}\n`);
 }
@@ -192,20 +166,17 @@ function fail(label, hint) {
 }
 
 async function emitHooksDrift(settings) {
-  // Compare current hooks to template-merged hooks. The diff count is the
-  // length of describeHookDiff's output. Zero diff = silent (no info line).
   let desired;
   try {
     desired = JSON.parse(await readFile(HOOKS_SRC, 'utf8'));
   } catch {
-    return; // template missing is a packaging bug — no drift line.
+    return;
   }
   const merged = mergeHooks(settings, desired);
   const diffs = describeHookDiff(settings.hooks ?? {}, merged.hooks);
   if (diffs.length > 0) {
-    // Drift-line token is the literal 'i hooks:' (single contiguous source
-    // string so README-↔-source grep contract works — Plan 06-03 quotes this
-    // token verbatim in the Troubleshooting table).
+    // Token 'i hooks:' must be a single contiguous string — the README's
+    // Troubleshooting table quotes it verbatim for grep.
     process.stdout.write(
       '  ' + chalk.dim('i hooks:') + ' ' + diffs.length + ' command(s) differ from template — run `self-wiki init --hooks-only` to refresh\n'
     );
@@ -224,9 +195,8 @@ async function emitPermissionsDrift(settings) {
   const missing = desiredAllow.filter((entry) => !currentAllow.includes(entry));
   if (missing.length > 0) {
     const noun = missing.length === 1 ? 'entry' : 'entries';
-    // Drift-line token is the literal 'i permissions:' (single contiguous
-    // source string so README-↔-source grep contract works — Plan 06-03 quotes
-    // this token verbatim in the Troubleshooting table).
+    // Token 'i permissions:' must be a single contiguous string — README
+    // Troubleshooting table quotes it verbatim for grep.
     process.stdout.write(
       '  ' + chalk.dim('i permissions:') + ' ' + missing.length + ' ' + noun + ' missing — run `self-wiki init --permissions-only` to refresh\n'
     );

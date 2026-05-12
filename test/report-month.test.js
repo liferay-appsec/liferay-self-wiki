@@ -209,26 +209,6 @@ test('prior-month soft-fails when no prior monthly file exists (D-14)', () => {
   );
 });
 
-// ---------------------------------------------------------------------------
-// Structural-guard tests below.
-//
-// These tests grep src/commands/report.js for the presence of specific
-// identifiers and runtime branches. They do NOT verify behavior — behavior
-// coverage requires a stubbed `claude` CLI, which the project does not yet
-// have (v0.1, "no test suite yet" per CLAUDE.md). Until that infrastructure
-// lands, these guards exist to prevent silent removal of:
-//   - the regenerated-marker write path,
-//   - the auto-backfill loop's empty-week graceful skip,
-//   - the dry-run gate on backfill,
-//   - the internal-flag plumbing on reportWeekOrchestrator.
-//
-// Trade-off: a legitimate refactor that renames anyDailyExists to
-// weekHasDailies (or moves the loop body out) will fail these tests. That
-// is acceptable for v0.1 — we'd rather a refactor surface "did you intend
-// to remove this invariant?" than ship a regression. Replace with end-to-end
-// behavior tests once a `claude` stub is wired up.
-// ---------------------------------------------------------------------------
-
 test('regenerated-marker code path exists in source (D-13 grep guardrail)', () => {
   // The live write+rewrite cycle requires the real `claude` CLI which is
   // out of scope for unit tests — verify the source contains the marker

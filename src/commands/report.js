@@ -9,27 +9,19 @@ import { claudeHeadless, hasClaudeCli } from '../core/claude.js';
 import { escapeRegex } from '../utils/regex.js';
 
 function isWeekday(dateStr) {
-  // dateStr is YYYY-MM-DD; parse as UTC to keep day-of-week stable across tz.
   const [y, m, d] = dateStr.split('-').map((s) => parseInt(s, 10));
   const day = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
   return day >= 1 && day <= 5;
 }
 
-// Resolve a user-supplied --out path against the vault root. CLAUDE.md's
-// "don't write to topic pages outside src/core/topics.js" rule is at risk
-// when --out points into Tickets/ or Components/, and a path like
-// /etc/passwd would silently overwrite arbitrary files. Warn loudly when
-// the resolved target is outside the vault, but do not block (the user
-// may legitimately want to dump a report to /tmp for inspection).
-// WR-06: reject the vault-root sub-case outright — `--out <vaultRoot>`
-// used to fire the "outside the vault" warning (vaultRoot doesn't end in
-// `sep`) then return the path, and the subsequent writeFile would fail
-// with EISDIR. Refuse explicitly with a clear error instead.
 function resolveOutPath(rawOut, defaultPath) {
   if (!rawOut) return defaultPath;
   const resolved = resolve(rawOut);
   const vaultRoot = resolve(getVaultPath());
   const vaultPrefix = vaultRoot + sep;
+  // Reject the vault-root sub-case outright: vaultRoot doesn't end in `sep`,
+  // so the prefix check below would let it through, and writeFile would
+  // then fail with EISDIR.
   if (resolved === vaultRoot) {
     process.stderr.write(`error: --out cannot be the vault root: ${resolved}\n`);
     process.exit(1);
@@ -48,7 +40,6 @@ export async function reportCommand(opts = {}) {
   await applyUserConfig();
   ensureVaultConfigured();
 
-  // Mutual exclusion (project convention: validate at the command).
   if (opts.month && opts.week) {
     process.stderr.write('error: --week and --month are mutually exclusive\n');
     process.exit(1);
@@ -62,13 +53,9 @@ export async function reportCommand(opts = {}) {
 }
 
 // `internal: true` is set by reportMonthOrchestrator's auto-backfill loop.
-// In that mode:
-//   - the stderr progress line is rephrased "backfilling <week>…" so a
-//     multi-week run reads coherently to the user;
-//   - the `wrote <path>` stdout line is suppressed (the monthly orchestrator
-//     owns the user-visible summary);
-//   - hasClaudeCli() is NOT re-checked here — the caller gated upstream so a
-//     mid-loop crash on missing claude can never leave partial state.
+// In that mode the stderr line is rephrased "backfilling", the user-facing
+// `wrote <path>` line is suppressed, and the inner hasClaudeCli re-check is
+// skipped because the caller already gated upstream.
 async function reportWeekOrchestrator(opts) {
   const internal = opts.internal === true;
   const week = opts.week || isoWeek();
@@ -79,28 +66,24 @@ async function reportWeekOrchestrator(opts) {
 
   for (const dateStr of dates) {
     try {
-      // Single read — readFile is the only point of truth for "present".
-      // The previous access()+readFile pair created a TOCTOU window and
-      // also mis-classified non-ENOENT errors (perm flap, I/O) as
-      // "missing"; here we let unexpected errors surface and only treat
-      // ENOENT as "no daily for this date".
+      // Single read is the only point of truth for "present". A prior
+      // access()+readFile pair created a TOCTOU window and mis-classified
+      // permission/IO errors as missing. Only ENOENT means "no daily".
       const raw = await readFile(getDailyFilePath(dateStr), 'utf8');
       present.push(dateStr);
       dailies.push({ dateStr, raw });
     } catch (err) {
       if (err.code !== 'ENOENT') throw err;
-      // Only flag weekdays without logs as "missing"; weekend gaps are noise.
+      // Weekend gaps are noise; only flag weekday gaps as "missing".
       if (isWeekday(dateStr)) missing.push(dateStr);
     }
   }
 
   if (present.length === 0) {
     if (internal) {
-      // Monthly auto-backfill caller. A racy disappearance of dailies
-      // between the outer anyDailyExists() short-circuit and the inner
-      // reads here must not tear down the surrounding monthly run —
-      // it's exactly the "no partial state" invariant documented at the
-      // backfill loop. Skip this week and let the loop continue.
+      // No-partial-state invariant: a racy disappearance of dailies between
+      // the outer anyDailyExists() short-circuit and these reads must not
+      // tear down the surrounding monthly run.
       process.stderr.write(`warn: skipping ${week} — no daily logs at synthesis time\n`);
       return;
     }
@@ -117,8 +100,6 @@ async function reportWeekOrchestrator(opts) {
     return;
   }
 
-  // Standalone weekly path keeps its soft-fail to dry-run on missing claude.
-  // The monthly backfill caller gates upstream, so we skip this check then.
   if (!internal && !(await hasClaudeCli())) {
     process.stderr.write('error: `claude` CLI not found on PATH. Install Claude Code or run with --dry-run to print the prompt.\n');
     process.exit(2);
@@ -135,19 +116,14 @@ async function reportWeekOrchestrator(opts) {
   }
 }
 
-// Used by the auto-backfill loop to skip ISO weeks whose constituent dates
-// have no daily log on disk (MONTH-04 graceful degradation). Only ENOENT
-// is treated as "no daily for this date" — other errors (permission,
-// I/O) are surfaced rather than silently masked, which previously could
-// cause monthly synthesis to skip weeks the user simply could not read.
 async function anyDailyExists(dates) {
   for (const d of dates) {
     try {
       await access(getDailyFilePath(d));
       return true;
     } catch (err) {
+      // Only ENOENT means "no daily for this date" — surface other errors.
       if (err.code !== 'ENOENT') throw err;
-      // ENOENT — keep checking the next date.
     }
   }
   return false;
@@ -193,8 +169,6 @@ async function buildPrompt({ week, metrics, dailies, present, missing, priorRepo
   }
   return parts.join('\n');
 }
-
-// ---------- Monthly path (Plan 02-02) ----------
 
 function currentMonthUTC() {
   const now = new Date();
@@ -244,7 +218,7 @@ async function loadInMonthTopicPages(monthStr) {
     try {
       entries = await readdir(dir);
     } catch {
-      continue; // directory missing — fine
+      continue;
     }
     for (const fname of entries) {
       if (!fname.endsWith('.md')) continue;
@@ -255,44 +229,31 @@ async function loadInMonthTopicPages(monthStr) {
       } catch {
         continue;
       }
-      // A topic page is "touched in-month" when at least one of the in-month
-      // YYYY-MM-DD strings appears under a `## ` section header. The
-      // current convention in src/core/topics.js#appendDatedSection is
-      // `## ${dateStr} — Session ${n}`, but we anchor on `^## <date>\b`
-      // (multiline) so a future formatting tweak (`: ` instead of `— `,
-      // newline-only, etc.) does not silently drop topic pages from the
-      // monthly synthesis. Also accepts the date appearing at the end of
-      // the header line.
+      // Anchor on `^## <date>\b` (multiline) so formatting tweaks in
+      // src/core/topics.js#appendDatedSection do not silently drop topic
+      // pages from the monthly synthesis.
       const dateRe = new RegExp(`^## (?:${dates.map(escapeRegex).join('|')})\\b`, 'm');
-      const touched = dateRe.test(raw);
-      if (touched) out.push({ slug, raw, kind: kind === 'Tickets' ? 'ticket' : 'component' });
+      if (dateRe.test(raw)) {
+        out.push({ slug, raw, kind: kind === 'Tickets' ? 'ticket' : 'component' });
+      }
     }
   }
   return out;
 }
 
-// `internal: true` is set by selfReviewOrchestrator's auto-backfill loop
-// (Plan 03-06). In that mode, mirror reportWeekOrchestrator's behavior:
-//   - the stderr progress line is rephrased "backfilling <month>…" so a
-//     deep cascade (4 monthlies × N weeklies) reads coherently;
-//   - the `wrote <path>` stdout line is suppressed (the self-review
-//     orchestrator owns the user-visible final summary);
-//   - the inner hasClaudeCli() re-check is skipped — the caller gated
-//     upstream so a mid-loop crash on missing claude cannot leave partial
-//     state in the vault.
-// The inner weekly-cascade (lines below) STILL re-checks hasClaudeCli
-// independently, mirroring the standalone monthly path; that check is the
-// monthly orchestrator's own concern.
+// `internal: true` is set by selfReviewOrchestrator's cascade. In that mode
+// stderr says "backfilling", the user-facing `wrote` line is suppressed,
+// and the inner hasClaudeCli re-check is skipped because the caller already
+// gated upstream. The weekly-cascade inside this orchestrator still re-checks
+// independently; that is the monthly orchestrator's own concern.
 export async function reportMonthOrchestrator(opts) {
   const internal = opts.internal === true;
   const month = opts.month === true ? currentMonthUTC() : validateMonthOrExit(opts.month);
   const dates = datesInMonth(month);
   const weeks = weeksInMonth(month);
 
-  // Load existing weeklies; track missing.
-  // `let`-bound (not const) so the auto-backfill phase below can re-load
-  // post-backfill state into the same names — the downstream prompt-build
-  // call must see the up-to-date arrays.
+  // `let`-bound so the post-backfill re-load can overwrite into the same
+  // names — downstream prompt-build must see the up-to-date arrays.
   let presentWeeks = [];
   let missingWeeks = [];
   for (const weekStr of weeks) {
@@ -304,11 +265,8 @@ export async function reportMonthOrchestrator(opts) {
     }
   }
 
-  // D-02 / D-03: auto-backfill missing weeklies before synthesizing the
-  // month. Skip when --dry-run (per CONTEXT.md <specifics>: dry-run prints
-  // the monthly prompt only, never silently invokes weekly synthesis).
-  // Gate the entire loop behind a single hasClaudeCli check so a mid-loop
-  // crash on missing `claude` cannot leave partial state in the vault.
+  // Single hasClaudeCli gate before the loop so a mid-loop crash cannot
+  // leave partial state in the vault.
   if (!opts.dryRun && missingWeeks.length > 0) {
     if (!(await hasClaudeCli())) {
       process.stderr.write('error: `claude` CLI not found on PATH. Install Claude Code or run with --dry-run to print the prompt.\n');
@@ -317,22 +275,15 @@ export async function reportMonthOrchestrator(opts) {
     for (const weekStr of missingWeeks) {
       const weekDates = datesInWeek(weekStr);
       const hasAnyDaily = await anyDailyExists(weekDates);
-      if (!hasAnyDaily) continue; // MONTH-04: graceful skip on weeks with zero dailies
+      if (!hasAnyDaily) continue;
       try {
         await reportWeekOrchestrator({ week: weekStr, internal: true });
       } catch (err) {
-        // The hasClaudeCli() pre-check above guards binary-presence, but
-        // claude -p itself can still fail mid-loop (network blip, model
-        // error, OOM, killed). Without this catch the rejection bubbles
-        // through cli.js's parseAsync and exits 1, leaving any weekly
-        // reports written so far on disk — exactly the partial-state
-        // outcome the comment block above the gate disclaims. Log and
-        // continue so the monthly run remains best-effort.
+        // claude -p itself can still fail mid-loop (network, model error,
+        // OOM, killed). Log and continue — best-effort cascade.
         process.stderr.write(`warn: backfill failed for ${weekStr}: ${err.message}\n`);
       }
     }
-    // Re-load — the loop just wrote new files for some weeks; the
-    // downstream buildMonthlyPrompt MUST see the post-backfill state.
     presentWeeks = [];
     missingWeeks = [];
     for (const weekStr of weeks) {
@@ -353,7 +304,6 @@ export async function reportMonthOrchestrator(opts) {
   });
   const priorReport = await loadPriorMonthReport(month);
 
-  // Partial-month detection (D-15): today (UTC) is on or before last day of month.
   const lastDayOfMonth = dates.at(-1);
   const today = todayUTC();
   const partial = today <= lastDayOfMonth;
@@ -376,10 +326,9 @@ export async function reportMonthOrchestrator(opts) {
     return;
   }
 
-  // Skip the final-synthesis hasClaudeCli re-check when called from the
-  // self-review cascade — the caller's hoisted gate guarantees claude is
-  // available, and a second check here would only widen the partial-state
-  // window (hasClaudeCli is process-state, not pure).
+  // Skip the final-synthesis re-check when called from the self-review
+  // cascade — the caller's hoisted gate already guaranteed claude is
+  // available, and a second check here widens the partial-state window.
   if (!internal && !(await hasClaudeCli())) {
     process.stderr.write('error: `claude` CLI not found on PATH. Install Claude Code or run with --dry-run to print the prompt.\n');
     process.exit(2);
@@ -391,8 +340,6 @@ export async function reportMonthOrchestrator(opts) {
   const outPath = resolveOutPath(opts.out, getReportFilePath(month));
   await ensureParentDir(outPath);
 
-  // D-13: always overwrite, prepending a regenerated marker on
-  // second-and-subsequent runs.
   let exists = false;
   try {
     await access(outPath);
@@ -414,10 +361,6 @@ export async function reportMonthOrchestrator(opts) {
 async function buildMonthlyPrompt({ month, metrics, weeklies, missingWeeks, topicPages, priorReport, partialNote }) {
   const promptHeader = await readFile(MONTHLY_PROMPT_PATH, 'utf8');
 
-  // Build the Sources line as a sequence of independent clauses. The
-  // earlier sourceParts.join('') was a no-op on a single-element array;
-  // straight string concatenation here is clearer and matches reader
-  // intent (one clause per data category).
   const sourcesHead = weeklies.length > 0
     ? `Sources: ${weeklies.map((w) => `\`Reports/${w.weekStr}.md\``).join(', ')}.`
     : 'Sources: (no weekly reports present).';

@@ -1,6 +1,5 @@
-// src/core/metrics.js — Shared metrics helper. Lifted from
-// src/commands/report.js per D-10/D-12. Reads raw daily logs (source of
-// truth — CLAUDE.md rule); never reads pre-rendered weekly metric blocks.
+// Reads raw daily logs only — never pre-rendered metric blocks (source-of-
+// truth rule from CLAUDE.md).
 
 import { parseDailyFile } from '../utils/log-parser.js';
 import { escapeRegex } from '../utils/regex.js';
@@ -16,9 +15,6 @@ export async function buildMetrics(dates, opts = {}) {
   let daysWithLogs = 0;
   let forcePushes = 0;
 
-  // For component matching we need the per-session haystacks across the
-  // whole window. We collect them while walking the parsed files so the
-  // loop runs once.
   const sessionHaystacks = [];
 
   for (const dateStr of dates) {
@@ -39,13 +35,9 @@ export async function buildMetrics(dates, opts = {}) {
       }
     }
     const text = parsed.sessions.flatMap((s) => s.notes.map((n) => n.text)).join('\n');
-    // PR regex: 2–7 digits, MUST be preceded by `PR` or `pull`. Dropping
-    // the bare `#NNN` branch is deliberate — GitHub displays issues as
-    // `#N` too, and conflating issue refs with PR refs inflated the
-    // "PRs touched" line. The deterministic-metrics rule (CLAUDE.md) and
-    // the prompt's "Use as-is" directive make accuracy here load-bearing.
-    // Lower bound of 2 keeps single-digit `PR #5` noise out; upper bound
-    // of 7 covers any realistic PR number through ~9.9M.
+    // Require `PR` or `pull` prefix — bare `#NNN` conflates issues with PRs
+    // and inflated the "PRs touched" line. Lower bound 2 strips `PR #5`
+    // noise; upper bound 7 covers up to ~9.9M PR numbers.
     const prMatches = text.match(/\b(?:PR|pull)\s*#?(\d{2,7})\b/gi) ?? [];
     for (const m of prMatches) prSet.add('#' + m.match(/\d+/)[0]);
     forcePushes += (text.match(/force[ -]?push/gi) ?? []).length;
@@ -68,8 +60,8 @@ export async function buildMetrics(dates, opts = {}) {
   lines.push(`- **Force-push mentions:** ${forcePushes}.`);
 
   if (shape === 'month') {
-    // D-09: promote daysWithLogs to its own line (it is also reported on
-    // the Sessions tail to preserve byte-equality with the weekly shape).
+    // Promote daysWithLogs to its own line in the monthly shape (still kept
+    // on the Sessions tail above to preserve byte-equality with weekly).
     lines.push(`- **Days with logs:** ${daysWithLogs} (of ${dates.length}).`);
     const matchedComponents = matchComponents(sessionHaystacks, components);
     lines.push(

@@ -1,12 +1,7 @@
 import { readFile } from 'fs/promises';
 import { looksLikeClosingSummary } from './closing-tells.js';
 
-// Inspect the most recent turn of a Claude Code transcript JSONL file and report
-// whether the just-finished assistant turn looks like a closing summary AND no
-// `self-wiki note` Bash call was issued during that turn.
-//
-// Robust against partial/corrupt transcripts; returns a defensive default on
-// any error so the Stop hook never fails.
+// Returns a defensive default on any error so the Stop hook never fails.
 export async function inspectTranscript(transcriptPath) {
   const empty = { closingTellDetected: false, noteAdded: false, lastTextSnippet: '', leafUuid: '' };
   if (!transcriptPath || typeof transcriptPath !== 'string') return empty;
@@ -21,9 +16,6 @@ export async function inspectTranscript(transcriptPath) {
   const lines = raw.split('\n').filter(Boolean);
   if (lines.length === 0) return empty;
 
-  // Walk backward to find the boundary of the most recent assistant turn.
-  // The "turn" starts at the most recent user message (a real prompt, not a
-  // tool_result) and ends at the latest assistant message.
   const turn = collectLastTurn(lines);
   if (!turn || turn.length === 0) return empty;
 
@@ -55,9 +47,8 @@ export async function inspectTranscript(transcriptPath) {
 }
 
 function collectLastTurn(lines) {
-  // Parse from end backward, collect entries belonging to the most recent
-  // user→assistant turn. We stop when we hit a real user prompt (a user
-  // message that does NOT contain only tool_result blocks).
+  // Walk backward until we hit a real user prompt — the boundary of the
+  // most recent user→assistant turn.
   const window = [];
   for (let i = lines.length - 1; i >= 0; i--) {
     let entry;
@@ -68,16 +59,16 @@ function collectLastTurn(lines) {
     }
     window.unshift(entry);
     if (isRealUserPrompt(entry)) break;
-    if (window.length > 400) break; // safety bound
+    if (window.length > 400) break;
   }
   return window;
 }
 
 function isRealUserPrompt(entry) {
+  // A user message of pure tool_result blocks is a tool reply, not a prompt.
   if (entry?.type !== 'user') return false;
   const content = entry?.message?.content;
   if (typeof content === 'string') return true;
   if (!Array.isArray(content)) return false;
-  // A user message of pure tool_result blocks is just a tool reply, not a prompt.
   return content.some((b) => b?.type !== 'tool_result');
 }

@@ -8,9 +8,8 @@ const DEFAULT_VERSION_TIMEOUT_MS = 5 * 1000;       // 5 s
 const SIGKILL_GRACE_MS = 2 * 1000;                 // 2 s after SIGTERM
 
 function killWithGrace(child) {
-  // Best-effort graceful shutdown, then SIGKILL if the child ignores it.
-  // Both kill() calls are no-ops once the process has already exited, so
-  // the timer is safe even on a normal close.
+  // SIGTERM, then SIGKILL after grace. Both calls no-op post-exit, so the
+  // timer is safe on a normal close.
   try { child.kill('SIGTERM'); } catch { /* already gone */ }
   setTimeout(() => {
     try { child.kill('SIGKILL'); } catch { /* already gone */ }

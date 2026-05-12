@@ -83,10 +83,6 @@ function runCli(args, opts = {}) {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Dry-run envelope smoke test (REVIEW-01 + REVIEW-08 + REVIEW-09)
-// ---------------------------------------------------------------------------
-
 test('--dry-run with --cycle prints the self-review prompt envelope', () => {
   const r = runCli(['--cycle', '2026-cycle1', '--dry-run']);
   assert.equal(r.status, 0, `stderr: ${r.stderr}`);
@@ -113,10 +109,6 @@ test('--dry-run with --cycle prints the self-review prompt envelope', () => {
   assert.ok(!r.stdout.includes('wrote '));
 });
 
-// ---------------------------------------------------------------------------
-// Mutex flag validation
-// ---------------------------------------------------------------------------
-
 test('--cycle and --since together is a usage error (exit 1)', () => {
   const r = runCli(['--cycle', '2026-cycle1', '--since', '2026-01-15', '--dry-run']);
   assert.equal(r.status, 1);
@@ -141,10 +133,6 @@ test('--since with malformed value exits 1', () => {
   assert.match(r.stderr, /invalid --since value/);
 });
 
-// ---------------------------------------------------------------------------
-// Refuse-without-force (D-03)
-// ---------------------------------------------------------------------------
-
 test('refuse-without-force on existing Reviews/<cycle>.md (D-03)', () => {
   // Seed an existing review file.
   writeFileSync(join(vault, 'Reviews', '2026-cycle1.md'), '# Old hand-edited review\n', 'utf8');
@@ -168,10 +156,6 @@ test('refuse-without-force on existing Reviews/<cycle>.md (D-03)', () => {
   assert.match(body, /Old hand-edited review/);
 });
 
-// ---------------------------------------------------------------------------
-// Dry-run does NOT trigger any write or backfill (D-07)
-// ---------------------------------------------------------------------------
-
 test('--dry-run on a cycle with missing monthlies surfaces them in the prompt but does NOT backfill', () => {
   // Cycle 2026-cycle1 = Jan 1 → Apr 30 (4 monthlies needed: 01, 02, 03, 04).
   // We have only 2026-02.md; 01, 03, 04 are missing.
@@ -187,10 +171,8 @@ test('--dry-run on a cycle with missing monthlies surfaces them in the prompt bu
   assert.match(r.stdout, /Missing monthlies/);
 });
 
-// ---------------------------------------------------------------------------
-// Soft-fail-to-dry-run on missing claude (REVIEW-08 + ROADMAP criterion 5)
+// Soft-fail-to-dry-run on missing claude
 // DIVERGENT from report --month behavior (which exits 2).
-// ---------------------------------------------------------------------------
 
 test('Without --dry-run, missing `claude` soft-fails to dry-run with stderr notice', () => {
   // Remove the existing review file so refuse-without-force does NOT fire first.
@@ -220,10 +202,6 @@ test('Without --dry-run, missing `claude` soft-fails to dry-run with stderr noti
   assert.equal(cfg.review.lastReviewedCycle, null);
 });
 
-// ---------------------------------------------------------------------------
-// --prior-review manual override
-// ---------------------------------------------------------------------------
-
 test('--prior-review reads the manual file and emits PRIOR_REVIEW block', () => {
   const manualPath = join(tmp, 'manual-prior.md');
   writeFileSync(manualPath, '# Old Manual Review\n\n## 3. Growth\n- focus on TDD\n', 'utf8');
@@ -245,10 +223,6 @@ test('auto-detect prior cycle review surfaces as PRIOR_GROWTH_FOCUS when present
   assert.match(r.stdout, /PRIOR_GROWTH_FOCUS \(2025-cycle3\):/);
   assert.match(r.stdout, /pairing more/);
 });
-
-// ---------------------------------------------------------------------------
-// Structural-guard tests (no claude stub yet — see report-month.test.js rationale)
-// ---------------------------------------------------------------------------
 
 test('Preflight stderr summary fires when monthlies are missing', () => {
   // Tidy any prior-cycle review file that may have been seeded by previous
@@ -279,7 +253,7 @@ test('--dry-run does NOT trigger the auto-backfill cascade (D-07)', () => {
   const r = runCli(['--cycle', '2026-cycle1', '--dry-run']);
   assert.equal(r.status, 0);
 
-  // No new monthly files created by the dry-run (D-07 strict).
+  // No new monthly files created by the dry-run.
   assert.equal(existsSync(join(vault, 'Reports', '2026-01.md')), false);
   assert.equal(existsSync(join(vault, 'Reports', '2026-03.md')), false);
   assert.equal(existsSync(join(vault, 'Reports', '2026-04.md')), false);
@@ -402,10 +376,6 @@ test('--last-cycle resolves to resolveCycle(today).previous (REVIEW-08)', () => 
   // Always emits CYCLE: <name> (<start> → <end>) where end ≤ today.
   assert.match(r.stdout, /CYCLE: \d{4}-cycle\d \(\d{4}-\d{2}-\d{2} → \d{4}-\d{2}-\d{2}\)/);
 });
-
-// ---------------------------------------------------------------------------
-// REVIEW-04 + REVIEW-09 — prompt-shape structural guards
-// ---------------------------------------------------------------------------
 
 test('Prompt template carries the value-tagging mandate verbatim (REVIEW-04)', () => {
   const tpl = readFileSync(new URL('../src/templates/prompts/self-review.md', import.meta.url).pathname, 'utf8');

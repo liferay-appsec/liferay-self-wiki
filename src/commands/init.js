@@ -23,26 +23,16 @@ const SKILL_DEST = join(homedir(), '.claude', 'skills', 'wiki', 'SKILL.md');
 const SETTINGS_DEST = join(homedir(), '.claude', 'settings.json');
 
 export async function initCommand(vaultArg, opts = {}) {
-  // Narrow-fix flags: run only the named Claude-Code-wiring steps and
-  // skip vault scaffolding / user-config writes entirely. Combining two
-  // (or three) --X-only flags collapses to "do all named, skip the rest"
-  // per Phase 06 CONTEXT.md Claude's-Discretion-->-combinability.
-  //
-  // Intentionally do NOT call applyUserConfig() inside this branch — the
-  // three narrow steps (skill, hooks, permissions) write into ~/.claude/
-  // exclusively and have no vault dependency. Any future addition that
-  // touches the vault (e.g. writing into <vault>/.self-wiki/) MUST hoist
-  // applyUserConfig() above this block, otherwise getVaultPath() will
-  // throw with no obvious cause for a user who has a vault configured.
+  // --X-only narrow-fix branch: skill/hooks/permissions write only into
+  // ~/.claude/ and have no vault dependency, so applyUserConfig() is
+  // deliberately NOT called here. If a future narrow step touches the
+  // vault, hoist applyUserConfig above this block.
   if (opts.hooksOnly || opts.permissionsOnly || opts.skillOnly) {
     if (vaultArg) {
       process.stderr.write(
         `warning: --hooks-only / --permissions-only / --skill-only ignore the <vault-path> argument (${vaultArg}); skipping vault scaffold.\n`
       );
     }
-    // Reject incoherent --X-only + --no-X combinations explicitly so the
-    // user knows their negation was meaningful. Without this, --no-hooks
-    // would be silently ignored inside --hooks-only.
     if (opts.hooksOnly && opts.hooks === false) {
       process.stderr.write('error: --hooks-only cannot be combined with --no-hooks\n');
       process.exit(2);
@@ -158,9 +148,9 @@ export function mergeHooks(current, desired) {
     const merged = [];
     const consumed = new Set();
     for (const block of existing) {
+      // Upgrade path: replace an existing self-wiki block with the matching
+      // desired one; drop it if the new version has none for this event.
       if (isSelfWikiBlock(block)) {
-        // Replace an existing self-wiki entry with the matching desired one
-        // (upgrade path). Drop it if the new version has nothing for this event.
         const idx = desiredBlocks.findIndex((_, i) => !consumed.has(i));
         if (idx !== -1) {
           merged.push(desiredBlocks[idx]);
