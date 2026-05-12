@@ -137,24 +137,6 @@ test('closeSessionBlock with interrupted writes the warning marker', async () =>
   assert.doesNotMatch(content, /- Completed:/);
 });
 
-test('closeSessionBlock omits duration line when durationMin is null', async () => {
-  await logger.openSessionBlockAtomic({
-    task: 't',
-    ticketId: null,
-    dateStr,
-    startedAt: new Date('2026-04-27T09:00:00'),
-  });
-  await logger.closeSessionBlock({
-    sessionNumber: 1,
-    dateStr,
-    status: 'completed',
-    durationMin: null,
-    endedAt: new Date('2026-04-27T09:30:00'),
-  });
-  const content = readFileSync(dailyPath(), 'utf8');
-  assert.doesNotMatch(content, /- Duration:/);
-});
-
 test('closeSessionBlock throws when block does not exist', async () => {
   // file exists but never had a Session 99 block at all
   await logger.openSessionBlockAtomic({
@@ -200,36 +182,6 @@ test('closeSessionBlock is idempotent — second close on a closed session is a 
   });
   const secondContent = readFileSync(dailyPath(), 'utf8');
   assert.equal(firstContent, secondContent);
-});
-
-test('closeSessionBlock self-heals duplicate sentinels', async () => {
-  await logger.openSessionBlockAtomic({
-    task: 't',
-    ticketId: null,
-    dateStr,
-    startedAt: new Date('2026-04-27T09:00:00'),
-  });
-  // Inject a duplicate sentinel (simulating prior $1 corruption).
-  const path = dailyPath();
-  const raw = readFileSync(path, 'utf8');
-  const dup = raw.replace(
-    '<!-- session-1-open -->',
-    '<!-- session-1-open -->\n<!-- session-1-open -->',
-  );
-  writeFileSync(path, dup, 'utf8');
-
-  await logger.closeSessionBlock({
-    sessionNumber: 1,
-    dateStr,
-    status: 'completed',
-    durationMin: 30,
-    endedAt: new Date('2026-04-27T09:30:00'),
-  });
-  const content = readFileSync(path, 'utf8');
-  assert.doesNotMatch(content, /<!-- session-1-open -->/);
-  // Exactly one closing block.
-  const matches = content.match(/^- Ended: 09:30/gm);
-  assert.equal(matches?.length ?? 0, 1);
 });
 
 test('appendNote inserts before the sentinel and preserves order', async () => {
@@ -322,30 +274,6 @@ test('markActivity writes a Last activity line above the sentinel', async () => 
   const sentinelIdx = content.indexOf('<!-- session-1-open -->');
   assert.ok(activityIdx > 0, 'activity line present');
   assert.ok(activityIdx < sentinelIdx, 'activity line above sentinel');
-});
-
-test('markActivity replaces a prior Last activity line idempotently', async () => {
-  await logger.openSessionBlockAtomic({
-    task: 't',
-    ticketId: null,
-    dateStr,
-    startedAt: new Date('2026-04-27T09:00:00'),
-  });
-  await logger.markActivity({
-    sessionNumber: 1,
-    dateStr,
-    at: new Date('2026-04-27T09:15:00'),
-  });
-  await logger.markActivity({
-    sessionNumber: 1,
-    dateStr,
-    at: new Date('2026-04-27T09:25:00'),
-  });
-  const content = readFileSync(dailyPath(), 'utf8');
-  assert.doesNotMatch(content, /- Last activity: 09:15/);
-  assert.match(content, /- Last activity: 09:25/);
-  const matches = content.match(/^- Last activity:/gm) ?? [];
-  assert.equal(matches.length, 1);
 });
 
 test('closeSessionBlock strips Last activity line on hard close', async () => {

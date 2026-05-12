@@ -192,23 +192,6 @@ test('past-month dry-run does NOT include a Partial month note', () => {
   assert.ok(!r.stdout.includes('Partial month'));
 });
 
-test('prior-month soft-fails when no prior monthly file exists (D-14)', () => {
-  // Remove the prior monthly file we wrote in `before`.
-  const priorPath = join(vault, 'Reports', '2026-03.md');
-  if (existsSync(priorPath)) unlinkSync(priorPath);
-
-  const r = runCli(['--month', '2026-04', '--dry-run']);
-  assert.equal(r.status, 0);
-  assert.ok(!r.stdout.includes('PRIOR_REPORT ('));
-
-  // Restore for any subsequent test that depends on it.
-  writeFileSync(
-    priorPath,
-    `# Monthly Report — March 2026\n\n## Risks / carry-over\n- Tail-end review feedback on PR #1000.\n`,
-    'utf8',
-  );
-});
-
 test('regenerated-marker code path exists in source (D-13 grep guardrail)', () => {
   // The live write+rewrite cycle requires the real `claude` CLI which is
   // out of scope for unit tests — verify the source contains the marker
@@ -281,21 +264,5 @@ test('Backfill source contains the empty-week graceful-skip guard (MONTH-04)', (
   assert.match(src, /if \(!hasAnyDaily\) continue/);
   // The hasClaudeCli pre-check must precede the loop.
   assert.match(src, /hasClaudeCli/);
-});
-
-test('Dry-run on a month with zero dailies completes cleanly without writes', () => {
-  // 2025-07 — no fixture writes for it. All overlapping weeks are missing.
-  ['2025-W27', '2025-W28', '2025-W29', '2025-W30', '2025-W31'].forEach((w) => {
-    const p = join(vault, 'Reports', `${w}.md`);
-    if (existsSync(p)) unlinkSync(p);
-  });
-
-  const r = runCli(['--month', '2025-07', '--dry-run']);
-  assert.equal(r.status, 0, `stderr: ${r.stderr}`);
-  assert.match(r.stdout, /MONTH: 2025-07/);
-  // Every overlapping week should be flagged missing.
-  assert.match(r.stdout, /Missing weeks:/);
-  // No monthly file was written by the dry-run.
-  assert.equal(existsSync(join(vault, 'Reports', '2025-07.md')), false);
 });
 

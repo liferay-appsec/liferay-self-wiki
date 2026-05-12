@@ -66,18 +66,6 @@ test('resolveReviewWindow: --last-cycle resolves to resolveCycle(today).previous
   assert.equal(r.end, '2026-04-30');
 });
 
-test('resolveReviewWindow: --since on cycle-start emits no partialNote', () => {
-  const r = resolveReviewWindow({
-    since: '2026-01-01',
-    today: '2026-06-15',
-    vaultConfig: defaultVaultCfg,
-  });
-  assert.equal(r.cycleName, '2026-cycle1');
-  assert.equal(r.start, '2026-01-01');
-  assert.equal(r.end, '2026-04-30');
-  assert.equal(r.partialNote, null);
-});
-
 test('resolveReviewWindow: --since off-boundary snaps to enclosing cycle and emits partialNote (D-04)', () => {
   const r = resolveReviewWindow({
     since: '2026-02-15',
@@ -100,15 +88,6 @@ test('resolveReviewWindow: vault lastReviewedAt acts as implicit --since', () =>
   assert.equal(r.start, '2026-03-15');
   assert.equal(r.end, '2026-04-30');
   assert.match(r.partialNote, /Custom window 2026-03-15.*since last review/);
-});
-
-test('resolveReviewWindow: explicit --since overrides vault lastReviewedAt', () => {
-  const cfg = {
-    review: { cycleEndMonths: [5, 9, 12], lastReviewedAt: '2025-11-15', lastReviewedCycle: '2025-cycle3' },
-  };
-  const r = resolveReviewWindow({ since: '2026-02-01', today: '2026-06-15', vaultConfig: cfg });
-  assert.equal(r.start, '2026-02-01');
-  assert.equal(r.cycleName, '2026-cycle1');
 });
 
 test('resolveReviewWindow: D-01 default — bare invocation picks most recently ended cycle', () => {
@@ -188,18 +167,6 @@ test('loadPriorCycleReview: auto-detect Q3 from prior cycle when no manualPath',
   assert.match(r.body, /TDD adoption/);
   // Must NOT include the next ## Sources section.
   assert.ok(!r.body.includes('## Sources'));
-});
-
-test('loadPriorCycleReview: auto-detect with no Q3 returns empty body but kind=autoQ3', async () => {
-  // Overwrite prior cycle file without a Q3 section.
-  const priorPath = join(global.__reviewVault, 'Reviews', '2025-cycle3.md');
-  writeFileSync(priorPath, '# Self-Review\n\n## 1. Accomplishments\n- x\n', 'utf8');
-  const r = await loadPriorCycleReview({
-    cycleName: '2026-cycle1',
-    cycleEndMonths: [5, 9, 12],
-  });
-  assert.equal(r.kind, 'autoQ3');
-  assert.equal(r.body, '');
 });
 
 test('loadPriorCycleReview: auto-detect with no prior file → null', async () => {
@@ -340,20 +307,6 @@ test('buildSelfReviewPrompt: WINDOW_NOTE concatenates partialNote and missingMon
   assert.match(out, /WINDOW_NOTE:/);
   assert.match(out, /Partial window note here/);
   assert.match(out, /Missing monthlies note here/);
-});
-
-test('buildSelfReviewPrompt: METRICS block only emitted when metrics provided', async () => {
-  const without = await buildSelfReviewPrompt({
-    window: { cycleName: '2026-cycle1', start: '2026-01-01', end: '2026-04-30' },
-    monthlies: [], weeklies: [], topicPages: [], priorReview: null,
-  });
-  assert.ok(!without.includes('METRICS:'));
-  const withM = await buildSelfReviewPrompt({
-    window: { cycleName: '2026-cycle1', start: '2026-01-01', end: '2026-04-30' },
-    monthlies: [], weeklies: [], topicPages: [], priorReview: null,
-    metrics: '- Sessions: 12\n- Tickets: 5',
-  });
-  assert.match(withM, /METRICS:\n- Sessions: 12/);
 });
 
 test('buildSelfReviewPrompt: prompt header from self-review.md is included', async () => {

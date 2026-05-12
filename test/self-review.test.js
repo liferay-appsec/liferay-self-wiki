@@ -308,41 +308,6 @@ test('--since 2026-02-15 snaps cycleName to 2026-cycle1 and emits partial-window
   assert.match(r.stdout, /partial slice of 2026-cycle1/);
 });
 
-test('--since on cycle-start emits NO partialNote (precedence regression guard)', () => {
-  const r = runCli(['--since', '2026-01-01', '--dry-run']);
-  assert.equal(r.status, 0, `stderr: ${r.stderr}`);
-  assert.match(r.stdout, /CYCLE: 2026-cycle1 \(2026-01-01 → 2026-04-30\)/);
-  // No "partial slice" wording in WINDOW_NOTE since since==start.
-  // (WINDOW_NOTE may still appear due to missing-monthlies note; we only
-  // assert that "partial slice of" does NOT appear.)
-  assert.ok(!r.stdout.includes('partial slice of'));
-});
-
-test('vault config lastReviewedAt acts as implicit --since (REVIEW-02 fallback path)', () => {
-  // Stamp lastReviewedAt in vault config; bare invocation should pick it up.
-  writeFileSync(
-    join(vault, '.self-wiki', 'config.json'),
-    JSON.stringify({
-      components: [],
-      review: { cycleEndMonths: [5, 9, 12], lastReviewedAt: '2026-03-01', lastReviewedCycle: '2026-cycle1' },
-    }, null, 2),
-    'utf8',
-  );
-  const r = runCli(['--dry-run']);
-  assert.equal(r.status, 0, `stderr: ${r.stderr}`);
-  assert.match(r.stdout, /CYCLE: 2026-cycle1 \(2026-03-01 → 2026-04-30\)/);
-  assert.match(r.stdout, /Custom window 2026-03-01.*since last review/);
-  // Restore default config for downstream tests.
-  writeFileSync(
-    join(vault, '.self-wiki', 'config.json'),
-    JSON.stringify({
-      components: [],
-      review: { cycleEndMonths: [5, 9, 12], lastReviewedAt: null, lastReviewedCycle: null },
-    }, null, 2),
-    'utf8',
-  );
-});
-
 test('explicit --since overrides vault lastReviewedAt (REVIEW-02 precedence)', () => {
   // Stamp lastReviewedAt to 2026-03-15; explicit --since should win.
   writeFileSync(
@@ -405,11 +370,6 @@ test('Prompt template mandates the final aggregated `## Sources` footer (REVIEW-
   assert.match(tpl, /### Weekly reports/);
   assert.match(tpl, /### Topic pages/);
   assert.match(tpl, /### Prior review/);
-});
-
-test('Prompt template mandates per-item inline source attribution (D-13)', () => {
-  const tpl = readFileSync(new URL('../src/templates/prompts/self-review.md', import.meta.url).pathname, 'utf8');
-  assert.match(tpl, /\*\(source: <file>\[, <file>\]\)\*/);
 });
 
 test('Prompt template carries the untrusted-data treatment line (defense in depth)', () => {

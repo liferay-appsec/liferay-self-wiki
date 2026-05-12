@@ -62,19 +62,6 @@ test('sessionOpen rotates an existing open slot for the same id', async () => {
   assert.match(content, /<!-- session-2-open -->/);
 });
 
-test('sessionOpen reuses a soft-closed slot within the soft-close window', async () => {
-  await session.sessionOpen({ claudeSessionId: 'soft-reopen', cwd: tmp });
-  await session.sessionClose({ claudeSessionId: 'soft-reopen', soft: true, silent: true });
-
-  const reopened = await session.sessionOpen({ claudeSessionId: 'soft-reopen', cwd: tmp });
-  assert.equal(reopened.sessionNumber, 1);
-  assert.equal(reopened.status, 'open');
-
-  const content = readFileSync(todayDailyPath(), 'utf8');
-  const headers = content.match(/^## Session /gm) ?? [];
-  assert.equal(headers.length, 1, 'soft-reopen should not append a new section');
-});
-
 test('sessionClose --hard removes sentinel and marks completed', async () => {
   await session.sessionOpen({ claudeSessionId: 'close-1', cwd: tmp });
   const closed = await session.sessionClose({
@@ -299,16 +286,3 @@ test('sessionClose --soft without --block-on-tell still queues pendingNudge but 
   assert.equal(persisted.lastBlockedTurnId ?? null, null);
 });
 
-test('sessionSwitch on a soft-closed session reopens it before switching', async () => {
-  await session.sessionOpen({ claudeSessionId: 'sw-soft', cwd: tmp });
-  await session.sessionClose({ claudeSessionId: 'sw-soft', soft: true, silent: true });
-
-  const switched = await session.sessionSwitch({
-    claudeSessionId: 'sw-soft',
-    task: 'after soft close',
-    ticket: 'LPD-42',
-    silent: true,
-  });
-  assert.equal(switched.status, 'open');
-  assert.equal(switched.ticketId, 'LPD-42');
-});

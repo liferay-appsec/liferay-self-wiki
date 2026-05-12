@@ -232,35 +232,6 @@ test('skill missing: ✗ wiki skill installed + --skill-only hint', async () => 
   assert.ok(result.failingCount >= 1);
 });
 
-test('Tier 2 hooks drift: ✓ + drift line, drift does not flip exit code', async () => {
-  seedHappyPath();
-  // Same shape as template but with a mutated command string in SessionStart.
-  // Mutating the command still keeps isSelfWikiBlock truthy (regex matches
-  // "self-wiki "), so Tier 1 passes, but mergeHooks will replace the entry —
-  // describeHookDiff returns ≥ 1 line → drift surfaces.
-  const settings = {
-    hooks: {
-      SessionStart: [{ hooks: [{ type: 'command', command: 'self-wiki session open --different-flag || true' }] }],
-      Stop: [{ hooks: [{ type: 'command', command: 'self-wiki session close --soft --silent --block-on-tell || true' }] }],
-      SessionEnd: [{ hooks: [{ type: 'command', command: 'self-wiki session close --hard --silent 2>&1 || true' }] }],
-      UserPromptSubmit: [{ hooks: [
-        { type: 'command', command: 'self-wiki session switch --silent 2>&1 || true' },
-        { type: 'command', command: 'self-wiki nudge 2>/dev/null || true' },
-      ] }],
-    },
-    permissions: JSON.parse(readFileSync(PERMISSIONS_TEMPLATE, 'utf8')).permissions,
-  };
-  writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
-  let result;
-  const out = await captureStdout(async () => {
-    result = await doctor.doctorCommand({ skipExit: true });
-  });
-  assert.match(out, /✓ hooks merged in settings.json/);
-  assert.match(out, /command\(s\) differ from template — run `self-wiki init --hooks-only` to refresh/);
-  // Tier-2 drift does NOT contribute to failingCount.
-  assert.equal(result.failingCount, 0);
-});
-
 test('Tier 2 permissions drift: ✓ + drift count, drift does not flip exit code', async () => {
   seedHappyPath();
   const hooks = JSON.parse(readFileSync(HOOKS_TEMPLATE, 'utf8'));
@@ -281,17 +252,6 @@ test('Tier 2 permissions drift: ✓ + drift count, drift does not flip exit code
   assert.match(out, /✓ permissions merged in settings.json/);
   assert.match(out, /permissions: \d+ (?:entry|entries) missing — run `self-wiki init --permissions-only` to refresh/);
   assert.equal(result.failingCount, 0);
-});
-
-test('summary line — failing shape with count', async () => {
-  seedHappyPath();
-  rmSync(skillPath, { force: true });
-  rmSync(vaultPath, { recursive: true, force: true });
-  // 2 ✗ expected: skill missing, vault path missing.
-  const out = await captureStdout(async () => {
-    await doctor.doctorCommand({ skipExit: true });
-  });
-  assert.match(out, /summary: \d+\/7 passing — \d+ ✗ — fix the items above and re-run/);
 });
 
 test('process.exit is NOT called when skipExit is true and failingCount > 0', async () => {

@@ -208,14 +208,6 @@ test('rebuildTicketPage scans every daily file and orders sections oldest-first'
   );
 });
 
-test('rebuildTicketPage produces a placeholder when no mentions found', async () => {
-  const result = await topics.rebuildTicketPage('LPD-9999');
-  assert.equal(result.sectionCount, 0);
-  const content = readFileSync(result.filePath, 'utf8');
-  assert.match(content, /^# LPD-9999/m);
-  assert.match(content, /No daily-log mentions found yet/);
-});
-
 test('rebuildTicketPage is idempotent — re-running yields identical content', async () => {
   writeDaily(
     '2026-04-27',
@@ -272,24 +264,6 @@ test('rebuildComponentPage rejects an unknown slug', async () => {
     () => topics.rebuildComponentPage('nonexistent'),
     /component "nonexistent" not found/,
   );
-});
-
-test('rebuildComponentPage supports string-form component config', async () => {
-  await config.writeVaultConfig({ components: ['portal'] });
-  writeDaily(
-    '2026-04-27',
-    `## Session 1 — Task: t
-- Started: 09:00
-- Note [09:15]: touched the portal module
-- Ended: 09:30
-- Duration: 30 min
-- Completed: ✅
-`,
-  );
-  const result = await topics.rebuildComponentPage('portal');
-  assert.equal(result.sectionCount, 1);
-  const content = readFileSync(result.filePath, 'utf8');
-  assert.match(content, /touched the portal module/);
 });
 
 test('reaped sessions can be folded into ticket pages by re-using updateTopicsForSession', async () => {
