@@ -276,3 +276,9 @@ Run `self-wiki doctor` to diagnose your install. Each ✓/✗ is followed by a o
 ## License
 
 Apache 2.0. See [LICENSE](LICENSE) for the license text and [NOTICE](NOTICE) for copyright attribution.
+
+## Support / Feedback
+
+Quick chatter / questions: `#self-wiki-feedback (TODO: confirm channel name)` on Liferay Slack.
+
+Bugs / feature requests: https://github.com/liferay-appsec/liferay-self-wiki/issues.
