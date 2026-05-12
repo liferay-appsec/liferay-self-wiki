@@ -126,6 +126,7 @@ cd self-wiki
 npm install
 npm install -g .
 self-wiki init /path/to/your/vault
+self-wiki doctor
 ```
 
 Examples: `~/notes`, `~/Documents/work-vault`, `/data/obsidian/personal`. Re-running `init` later with a different path repoints to the new vault; the old one stays untouched.
