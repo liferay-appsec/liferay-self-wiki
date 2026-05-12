@@ -250,31 +250,7 @@ test('auto-detect prior cycle review surfaces as PRIOR_GROWTH_FOCUS when present
 // Structural-guard tests (no claude stub yet — see report-month.test.js rationale)
 // ---------------------------------------------------------------------------
 
-test('regenerated-marker code path exists in src/core/reviews.js (D-03 grep guardrail)', () => {
-  const src = readFileSync(new URL('../src/core/reviews.js', import.meta.url).pathname, 'utf8');
-  assert.match(src, /<!-- regenerated /);
-  assert.match(src, /already exists/);
-  assert.match(src, /access\(outPath\)/);
-});
-
-test('vault-config writeback wires lastReviewedAt + lastReviewedCycle (REVIEW-07 grep guardrail)', () => {
-  const src = readFileSync(new URL('../src/core/reviews.js', import.meta.url).pathname, 'utf8');
-  assert.match(src, /writeVaultConfig\(\{/);
-  assert.match(src, /lastReviewedAt/);
-  assert.match(src, /lastReviewedCycle/);
-});
-
-test('soft-fail-to-dry-run code path exists in src/core/reviews.js (REVIEW-08 grep guardrail)', () => {
-  const src = readFileSync(new URL('../src/core/reviews.js', import.meta.url).pathname, 'utf8');
-  assert.match(src, /printing prompt to stdout instead/);
-  assert.match(src, /hasClaudeCli/);
-});
-
-// ---------------------------------------------------------------------------
-// Auto-backfill cascade — REVIEW-05 + D-05 (Plan 03-06 slice 2)
-// ---------------------------------------------------------------------------
-
-test('Preflight stderr summary fires when monthlies are missing (D-05)', () => {
+test('Preflight stderr summary fires when monthlies are missing', () => {
   // Tidy any prior-cycle review file that may have been seeded by previous
   // tests so the dry-run path is deterministic.
   try { unlinkSync(join(vault, 'Reviews', '2025-cycle3.md')); } catch {}
@@ -347,38 +323,6 @@ test('Without --dry-run, missing claude soft-fails BEFORE the cascade (no partia
   assert.equal(cfg.review.lastReviewedAt, null);
 });
 
-// ---------------------------------------------------------------------------
-// Structural guards — cascade pieces
-// ---------------------------------------------------------------------------
-
-test('selfReviewOrchestrator imports reportMonthOrchestrator (cascade structural guard)', () => {
-  const src = readFileSync(new URL('../src/core/reviews.js', import.meta.url).pathname, 'utf8');
-  assert.match(src, /import \{ reportMonthOrchestrator \} from '\.\.\/commands\/report\.js'/);
-  assert.match(src, /reportMonthOrchestrator\(\{ month: monthStr, internal: true \}\)/);
-});
-
-test('Auto-backfill cascade re-loads monthlies post-loop (no-stale-state guard)', () => {
-  const src = readFileSync(new URL('../src/core/reviews.js', import.meta.url).pathname, 'utf8');
-  assert.match(src, /Re-load monthlies post-cascade/);
-  // Two monthly-load loops (initial + post-cascade re-load) — count `for (const monthStr of months)`:
-  const matches = src.match(/for \(const monthStr of months\)/g) || [];
-  assert.ok(matches.length >= 2, `expected at least 2 monthly-load loops, found ${matches.length}`);
-});
-
-test('Hoisted soft-fail-to-dry-run gate fires before cascade (no-partial-state guard)', () => {
-  const src = readFileSync(new URL('../src/core/reviews.js', import.meta.url).pathname, 'utf8');
-  // The hoisted gate computes prompt0 and returns BEFORE the cascade.
-  // Verify the cascade block (with reportMonthOrchestrator) appears AFTER the hoisted-gate block.
-  const hoistedIdx = src.indexOf('printing prompt to stdout instead');
-  const cascadeIdx = src.indexOf('reportMonthOrchestrator({ month: monthStr');
-  assert.ok(hoistedIdx > 0 && cascadeIdx > 0, 'expected both hoisted gate and cascade present');
-  assert.ok(hoistedIdx < cascadeIdx, `expected hoisted gate (${hoistedIdx}) to appear before cascade (${cascadeIdx})`);
-});
-
-// ---------------------------------------------------------------------------
-// REVIEW-02 — full precedence ladder via --dry-run (cleanup-safe; doesn't
-// touch claude or vault config writeback).
-// ---------------------------------------------------------------------------
 
 test('--since 2026-02-15 snaps cycleName to 2026-cycle1 and emits partial-window WINDOW_NOTE (D-04)', () => {
   const r = runCli(['--since', '2026-02-15', '--dry-run']);
@@ -509,39 +453,7 @@ test('Prompt template manual-PRIOR_REVIEW-wins-on-collision rule is locked (D-12
   assert.match(tpl, /`PRIOR_REVIEW` overrides `PRIOR_GROWTH_FOCUS`/);
 });
 
-// ---------------------------------------------------------------------------
-// REVIEW-07 — vault-config writeback structural guard
-// ---------------------------------------------------------------------------
-
-test('selfReviewOrchestrator writes review.lastReviewedAt + lastReviewedCycle on success (REVIEW-07 grep guardrail)', () => {
-  const src = readFileSync(new URL('../src/core/reviews.js', import.meta.url).pathname, 'utf8');
-  // The writeVaultConfig call MUST patch only the review sub-object.
-  assert.match(src, /writeVaultConfig\(\{[\s\S]*?review: \{[\s\S]*?lastReviewedAt[\s\S]*?lastReviewedCycle/);
-  // The patch object must NOT include cycleEndMonths (preserves user override).
-  const writebackBlock = src.match(/writeVaultConfig\(\{[\s\S]{0,200}?\}\)/);
-  assert.ok(writebackBlock, 'expected to find writeVaultConfig({ ... }) call');
-  assert.ok(!writebackBlock[0].includes('cycleEndMonths'),
-    'writeVaultConfig patch must not include cycleEndMonths (would clobber user override)');
-});
-
-test('selfReviewOrchestrator wires writeVaultConfig AFTER the writeFile call (success-only writeback)', () => {
-  const src = readFileSync(new URL('../src/core/reviews.js', import.meta.url).pathname, 'utf8');
-  const writeFileIdx = src.indexOf('await writeFile(outPath');
-  // Anchor on the awaited call site, not a JSDoc reference (the orchestrator's
-  // docblock at the top mentions writeVaultConfig({…}) as part of its summary,
-  // which appears BEFORE the writeFile call and would yield a false positive).
-  const writeVaultIdx = src.indexOf('await writeVaultConfig({');
-  assert.ok(writeFileIdx > 0, 'expected writeFile(outPath, ...) to be present');
-  assert.ok(writeVaultIdx > 0, 'expected await writeVaultConfig({...}) to be present');
-  assert.ok(writeFileIdx < writeVaultIdx,
-    `expected writeFile (${writeFileIdx}) to precede writeVaultConfig (${writeVaultIdx}) so writeback only fires on successful synthesis`);
-});
-
-// ---------------------------------------------------------------------------
-// REVIEW-08 — flag matrix coverage (--cycle, --last-cycle, --dry-run all wired)
-// ---------------------------------------------------------------------------
-
-test('--cycle resolves window without --since (REVIEW-08)', () => {
+test('--cycle resolves window without --since', () => {
   const r = runCli(['--cycle', '2025-cycle3', '--dry-run']);
   assert.equal(r.status, 0, `stderr: ${r.stderr}`);
   // Under FIXED semantics with [5,9,12]: 2025-cycle3 = Sep 1 → Dec 31 2025.

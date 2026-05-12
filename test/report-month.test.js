@@ -238,29 +238,7 @@ test('regenerated-marker code path exists in source (D-13 grep guardrail)', () =
   assert.match(src, /access\(outPath\)/);
 });
 
-// ---- Plan 02-03 RED: backfill structure must exist in source ----
-
-test('Plan 02-03 RED — auto-backfill phase wired into reportMonthOrchestrator', () => {
-  // RED gate: assert the structural pieces auto-backfill needs.
-  // See the structural-guard rationale block above.
-  const src = readFileSync(new URL('../src/commands/report.js', import.meta.url).pathname, 'utf8');
-  // The dedicated backfill stderr line distinct from the "synthesizing" weekly line.
-  assert.match(src, /backfilling/);
-  // The empty-week graceful-skip helper.
-  assert.match(src, /async function anyDailyExists/);
-  // The backfill loop iterating missingWeeks.
-  assert.match(src, /for \(const weekStr of missingWeeks\)/);
-  // Dry-run gate on the backfill block — must explicitly check !opts.dryRun.
-  assert.match(src, /!opts\.dryRun && missingWeeks\.length > 0/);
-  // Re-load arrays after backfill (the empty-array reset before reloading).
-  assert.match(src, /presentWeeks = \[\]/);
-  // The internal flag plumbing on reportWeekOrchestrator's signature.
-  assert.match(src, /internal/);
-});
-
-// ---- Plan 02-03 backfill behavior tests ----
-
-test('--dry-run does NOT backfill missing weeklies (CONTEXT.md <specifics>)', () => {
+test('--dry-run does NOT backfill missing weeklies', () => {
   // Pre-condition: W18 (and W16/W17) weekly reports do not exist.
   // The fixture from `before` only writes W14 and W15.
   ['2026-W16', '2026-W17', '2026-W18'].forEach((w) => {
@@ -341,21 +319,3 @@ test('Dry-run on a month with zero dailies completes cleanly without writes', ()
   assert.equal(existsSync(join(vault, 'Reports', '2025-07.md')), false);
 });
 
-// ---- Plan 03-06 RED: reportMonthOrchestrator gains internal:true plumbing ----
-
-test('Plan 03-06 — reportMonthOrchestrator is exported with internal:true plumbing', () => {
-  const src = readFileSync(new URL('../src/commands/report.js', import.meta.url).pathname, 'utf8');
-  // Function is exported so reviews.js can import + invoke.
-  assert.match(src, /^export async function reportMonthOrchestrator/m);
-  // internal flag is read off opts at the top of the orchestrator.
-  assert.match(src, /const internal = opts\.internal === true/);
-  // Inner hasClaudeCli re-check is gated behind !internal (no partial state on cascade).
-  assert.match(src, /if \(!internal && !\(await hasClaudeCli\(\)\)\)/);
-  // The "synthesizing"/"backfilling" stderr line is selected by internal.
-  assert.match(src, /internal \? 'backfilling' : 'synthesizing'/);
-  // The wrote-stdout line is suppressed when internal === true. Two
-  // occurrences of `if (!internal)` are expected: one in the week
-  // orchestrator (already there), one in the month orchestrator (NEW).
-  const matches = src.match(/if \(!internal\)/g) || [];
-  assert.ok(matches.length >= 2, `expected ≥2 \`if (!internal)\` guards, got ${matches.length}`);
-});

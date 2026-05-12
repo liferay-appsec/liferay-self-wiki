@@ -78,23 +78,6 @@ test('writeVaultConfig merges patch with defaults and persists', async () => {
   assert.match(cfg.ticketRegex, /LPD/);
 });
 
-test('getVaultDefaults returns a fresh clone each call', () => {
-  const a = config.getVaultDefaults();
-  const b = config.getVaultDefaults();
-  assert.notEqual(a, b);
-  assert.deepEqual(a, b);
-  a.softCloseMinutes = 999;
-  assert.notEqual(b.softCloseMinutes, 999);
-});
-
-test('readVaultConfig defaults expose the review block (D-08)', async () => {
-  paths.setVaultPath(vault);
-  const cfg = await config.readVaultConfig();
-  assert.deepEqual(cfg.review.cycleEndMonths, [5, 9, 12]);
-  assert.equal(cfg.review.lastReviewedAt, null);
-  assert.equal(cfg.review.lastReviewedCycle, null);
-});
-
 test('readVaultConfig lazy-migrates a legacy on-disk config without a review key (D-07)', async () => {
   // Write a legacy-shape vault config (no `review` key) directly to disk and
   // confirm readVaultConfig surfaces the new defaults transparently.

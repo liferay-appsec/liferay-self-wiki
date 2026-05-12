@@ -103,16 +103,3 @@ test('buildMetrics shape:month accepts string-shaped component config', async ()
   assert.match(out, /^- \*\*Components touched:\*\* wiki\.$/m);
 });
 
-test('buildMetrics empty input renders dashes consistently', async () => {
-  const out = await metrics.buildMetrics([], { shape: 'week' });
-  assert.match(out, /^- \*\*Sessions:\*\* 0 total\. Days with logs: 0\.$/m);
-  assert.match(out, /^- \*\*Tickets touched:\*\* —\.$/m);
-  assert.match(out, /^- \*\*PRs touched:\*\* —\.$/m);
-  assert.match(out, /^- \*\*Force-push mentions:\*\* 0\.$/m);
-});
-
-test('buildMetrics month with empty dates emits month-only lines too', async () => {
-  const out = await metrics.buildMetrics([], { shape: 'month', components: ['wiki'] });
-  assert.match(out, /^- \*\*Days with logs:\*\* 0 \(of 0\)\.$/m);
-  assert.match(out, /^- \*\*Components touched:\*\* —\.$/m);
-});

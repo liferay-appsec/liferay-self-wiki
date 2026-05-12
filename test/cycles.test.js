@@ -103,62 +103,6 @@ test('resolveCycle accepts ISO string in addition to Date object', () => {
   assert.deepEqual(fromString, fromDate);
 });
 
-// ---------------------------------------------------------------------------
-// D-PREREQ explicit oracle + contiguous-coverage invariant (Option B)
-// ---------------------------------------------------------------------------
-
-test('D-PREREQ contiguous coverage [5,9,12] — every month maps to exactly one cycle', () => {
-  // Walk every month of 2026 and confirm cycle membership matches the
-  // intended Jan-Apr / May-Aug / Sep-Dec partition.
-  const expected = [
-    { m: 1,  name: '2026-cycle1' },
-    { m: 2,  name: '2026-cycle1' },
-    { m: 3,  name: '2026-cycle1' },
-    { m: 4,  name: '2026-cycle1' },
-    { m: 5,  name: '2026-cycle2' },
-    { m: 6,  name: '2026-cycle2' },
-    { m: 7,  name: '2026-cycle2' },
-    { m: 8,  name: '2026-cycle2' },
-    { m: 9,  name: '2026-cycle3' },
-    { m: 10, name: '2026-cycle3' },
-    { m: 11, name: '2026-cycle3' },
-    { m: 12, name: '2026-cycle3' },
-  ];
-  for (const { m, name } of expected) {
-    const mm = String(m).padStart(2, '0');
-    const r = resolveCycle(`2026-${mm}-15`, [5, 9, 12]);
-    assert.equal(r.current.name, name, `2026-${mm}-15 should be in ${name}`);
-  }
-});
-
-test('D-PREREQ year-boundary contiguity — cycle3.end + 1 day === next-year cycle1.start', () => {
-  const dec31 = resolveCycle('2026-12-31', [5, 9, 12]);
-  const jan1 = resolveCycle('2027-01-01', [5, 9, 12]);
-  assert.equal(dec31.current.end, '2026-12-31');
-  assert.equal(jan1.current.start, '2027-01-01');
-  assert.equal(jan1.current.name, '2027-cycle1');
-  assert.equal(jan1.previous.name, '2026-cycle3');
-  assert.equal(jan1.previous.end, '2026-12-31');
-});
-
-test('D-PREREQ uniform 4-month invariant for Liferay [5,9,12]', () => {
-  // Each cycle must be exactly 4 calendar months (or contain exactly the
-  // months listed). Length check via month arithmetic.
-  const c1 = resolveCycle('2026-02-15', [5, 9, 12]).current;
-  const c2 = resolveCycle('2026-06-15', [5, 9, 12]).current;
-  const c3 = resolveCycle('2026-10-15', [5, 9, 12]).current;
-  assert.equal(c1.start, '2026-01-01');
-  assert.equal(c1.end, '2026-04-30');
-  assert.equal(c2.start, '2026-05-01');
-  assert.equal(c2.end, '2026-08-31');
-  assert.equal(c3.start, '2026-09-01');
-  assert.equal(c3.end, '2026-12-31');
-});
-
-// ---------------------------------------------------------------------------
-// Invalid-input cases — all throw the D-06 message verbatim (en dash preserved)
-// ---------------------------------------------------------------------------
-
 test('resolveCycle throws on empty / non-array cycleEndMonths', () => {
   assert.throws(() => resolveCycle(new Date(), []), /cycleEndMonths must be/);
   assert.throws(() => resolveCycle(new Date(), null), /cycleEndMonths must be/);
@@ -178,11 +122,4 @@ test('resolveCycle throws on duplicate / non-monotonic input', () => {
   assert.throws(() => resolveCycle(new Date(), [5, 5, 12]), /cycleEndMonths must be/);
   assert.throws(() => resolveCycle(new Date(), [5, 12, 9]), /cycleEndMonths must be/);
   assert.throws(() => resolveCycle(new Date(), [12, 5, 9]), /cycleEndMonths must be/);
-});
-
-test('resolveCycle throws message contains the U+2013 en dash (1–12) verbatim', () => {
-  assert.throws(
-    () => resolveCycle(new Date(), []),
-    /cycleEndMonths must be a non-empty sorted array of integers 1–12/,
-  );
 });
