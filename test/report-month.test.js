@@ -29,9 +29,6 @@ before(async () => {
   mkdirSync(join(vault, 'Components'), { recursive: true });
   mkdirSync(join(vault, '.self-wiki'), { recursive: true });
 
-  // user config -> points vaultPath at tmp vault. The CLI subprocess reads
-  // this via applyUserConfig() and calls setVaultPath() before any command
-  // body runs, so the orchestrator finds the vault.
   mkdirSync(join(tmp, 'cfg', 'self-wiki'), { recursive: true });
   writeFileSync(
     join(tmp, 'cfg', 'self-wiki', 'config.json'),
@@ -39,16 +36,12 @@ before(async () => {
     'utf8',
   );
 
-  // vault config with one component for matching.
   writeFileSync(
     join(vault, '.self-wiki', 'config.json'),
     JSON.stringify({ components: [{ slug: 'wiki', keywords: ['wiki'] }] }, null, 2),
     'utf8',
   );
 
-  // Daily logs for April 2026 (a few sessions, mentioning 'wiki' so the
-  // component-keyword match has something to find — though metrics counts
-  // are not asserted, only the prompt envelope shape is).
   writeFileSync(
     join(vault, 'Daily', '2026-04-01.md'),
     `# 2026-04-01
@@ -76,8 +69,6 @@ before(async () => {
     'utf8',
   );
 
-  // Pre-existing weekly reports (W14, W15). W16/W17/W18 deliberately absent
-  // so the test exercises the "Missing weeks: ..." sources-line branch.
   writeFileSync(
     join(vault, 'Reports', '2026-W14.md'),
     `# Weekly Report — Mar 30 to Apr 5\n\n## Theme of the week\nWiki refinements.\n`,
@@ -89,16 +80,12 @@ before(async () => {
     'utf8',
   );
 
-  // Prior monthly report (used by the carry-over test).
   writeFileSync(
     join(vault, 'Reports', '2026-03.md'),
     `# Monthly Report — March 2026\n\n## Risks / carry-over\n- Tail-end review feedback on PR #1000.\n`,
     'utf8',
   );
 
-  // Topic page touched in-month (April). The marker shape `## YYYY-MM-DD —`
-  // is what src/core/topics.js#appendDatedSection writes; the orchestrator's
-  // loadInMonthTopicPages greps for `## ${date} ` (date + trailing space).
   writeFileSync(
     join(vault, 'Tickets', 'LPD-12345.md'),
     `# LPD-12345\n\n## 2026-04-01 — Session 1\nSource: \`Daily/2026-04-01.md\`\n- [09:15] refined the wiki\n`,
@@ -111,8 +98,6 @@ after(() => {
 });
 
 function runCli(args, opts = {}) {
-  // Spawn the actual CLI entry — exercises argv parsing AND the
-  // process.exit(...) paths used by the validators.
   return spawnSync('node', [CLI_ENTRY, 'report', ...args], {
     env: {
       ...process.env,
@@ -132,16 +117,11 @@ test('--month --dry-run prints the monthly prompt envelope', () => {
   assert.match(r.stdout, /Sources:/);
   assert.match(r.stdout, /WEEKLIES:/);
   assert.match(r.stdout, /TOPIC_PAGES:/);
-  // Pre-existing prior-month report should be loaded.
   assert.match(r.stdout, /PRIOR_REPORT \(2026-03\):/);
-  // W14/W15 are present, W16-W18 are missing.
   assert.match(r.stdout, /Reports\/2026-W14\.md/);
   assert.match(r.stdout, /Missing weeks: 2026-W16, 2026-W17, 2026-W18/);
-  // Topic page surfaces.
   assert.match(r.stdout, /Tickets\/LPD-12345\.md/);
-  // Dry-run does NOT write.
   assert.equal(existsSync(join(vault, 'Reports', '2026-04.md')), false);
-  // Dry-run does NOT print "wrote".
   assert.ok(!r.stdout.includes('wrote '));
 });
 
@@ -185,25 +165,20 @@ test('current-month dry-run includes a Partial month note (D-15)', () => {
 });
 
 test('past-month dry-run does NOT include a Partial month note', () => {
-  // 2026-01 will be in the past whenever this test runs in 2026 or later.
   const r = runCli(['--month', '2026-01', '--dry-run']);
-  // 2026-01 has no daily logs in the fixture; that's still a valid prompt.
   assert.equal(r.status, 0, `stderr: ${r.stderr}`);
   assert.ok(!r.stdout.includes('Partial month'));
 });
 
-test('regenerated-marker code path exists in source (D-13 grep guardrail)', () => {
-  // The live write+rewrite cycle requires the real `claude` CLI which is
-  // out of scope for unit tests — verify the source contains the marker
-  // logic and the runtime branch that prepends it.
+test('regenerated-marker code path exists in source (grep guardrail)', () => {
+  // Live write+rewrite cycle needs a real claude CLI; verify the source
+  // shape instead.
   const src = readFileSync(new URL('../src/commands/report.js', import.meta.url).pathname, 'utf8');
   assert.match(src, /<!-- regenerated /);
   assert.match(src, /access\(outPath\)/);
 });
 
 test('--dry-run does NOT backfill missing weeklies', () => {
-  // Pre-condition: W18 (and W16/W17) weekly reports do not exist.
-  // The fixture from `before` only writes W14 and W15.
   ['2026-W16', '2026-W17', '2026-W18'].forEach((w) => {
     const p = join(vault, 'Reports', `${w}.md`);
     if (existsSync(p)) unlinkSync(p);
@@ -212,18 +187,14 @@ test('--dry-run does NOT backfill missing weeklies', () => {
   const r = runCli(['--month', '2026-04', '--dry-run']);
   assert.equal(r.status, 0, `stderr: ${r.stderr}`);
 
-  // Dry-run must NOT have created any new weekly file (D-15: dry-run
-  // never silently invokes weekly synthesis).
   assert.equal(existsSync(join(vault, 'Reports', '2026-W18.md')), false);
   assert.equal(existsSync(join(vault, 'Reports', '2026-W17.md')), false);
   assert.equal(existsSync(join(vault, 'Reports', '2026-W16.md')), false);
 
-  // Sources line still flags them as missing.
   assert.match(r.stdout, /Missing weeks: .*2026-W18/);
 });
 
 test('Without --dry-run, missing `claude` exits 2 before any backfill (no partial state)', () => {
-  // Sanity: ensure no spurious weekly files exist from prior tests.
   ['2026-W16', '2026-W17', '2026-W18'].forEach((w) => {
     const p = join(vault, 'Reports', `${w}.md`);
     if (existsSync(p)) unlinkSync(p);
@@ -246,23 +217,17 @@ test('Without --dry-run, missing `claude` exits 2 before any backfill (no partia
   assert.equal(r.status, 2, `stderr: ${r.stderr}`);
   assert.match(r.stderr, /claude.* CLI not found on PATH/);
 
-  // No partial state — no weekly was synthesized despite W18 having dailies on 2026-04-15.
   assert.equal(existsSync(join(vault, 'Reports', '2026-W18.md')), false);
   assert.equal(existsSync(join(vault, 'Reports', '2026-W17.md')), false);
   assert.equal(existsSync(join(vault, 'Reports', '2026-W16.md')), false);
-  // The monthly file was also not produced.
   assert.equal(existsSync(join(vault, 'Reports', '2026-04.md')), false);
 });
 
 test('Backfill source contains the empty-week graceful-skip guard (MONTH-04)', () => {
   const src = readFileSync(new URL('../src/commands/report.js', import.meta.url).pathname, 'utf8');
-  // The short-circuit helper must exist.
   assert.match(src, /async function anyDailyExists/);
-  // The backfill loop must consult it.
   assert.match(src, /hasAnyDaily/);
-  // The continue branch must exist (graceful skip rather than error).
   assert.match(src, /if \(!hasAnyDaily\) continue/);
-  // The hasClaudeCli pre-check must precede the loop.
   assert.match(src, /hasClaudeCli/);
 });
 

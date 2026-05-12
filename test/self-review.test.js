@@ -29,8 +29,6 @@ before(() => {
   mkdirSync(join(vault, 'Components'), { recursive: true });
   mkdirSync(join(vault, '.self-wiki'), { recursive: true });
 
-  // user config -> points vaultPath at tmp vault. The CLI subprocess reads
-  // this via applyUserConfig() before any command body runs.
   mkdirSync(join(tmp, 'cfg', 'self-wiki'), { recursive: true });
   writeFileSync(
     join(tmp, 'cfg', 'self-wiki', 'config.json'),
@@ -38,7 +36,6 @@ before(() => {
     'utf8',
   );
 
-  // vault config — Liferay defaults.
   writeFileSync(
     join(vault, '.self-wiki', 'config.json'),
     JSON.stringify(
@@ -52,14 +49,12 @@ before(() => {
     'utf8',
   );
 
-  // Seed a 2026-cycle1 monthly so dry-run has something to surface.
   writeFileSync(
     join(vault, 'Reports', '2026-02.md'),
     '# Monthly — Feb 2026\n\n## Theme(s) of the month\n- Wiki refinements.\n',
     'utf8',
   );
 
-  // Seed a topic page touched in-cycle so loadInCycleTopicPages finds it.
   writeFileSync(
     join(vault, 'Tickets', 'LPD-12345.md'),
     '# LPD-12345\n\n## 2026-02-15 — Session 1\n- worked\n',
@@ -90,22 +85,17 @@ test('--dry-run with --cycle prints the self-review prompt envelope', () => {
   assert.match(r.stdout, /MONTHLIES: \(primary — use as the spine\)/);
   assert.match(r.stdout, /WEEKLIES: \(secondary — for detail when monthly is thin\)/);
   assert.match(r.stdout, /TOPIC_PAGES: \(ticket\/component ground truth\)/);
-  // Three review questions verbatim from self-review.md prompt header.
   assert.match(r.stdout, /## 1\. What have you accomplished/);
   assert.match(r.stdout, /## 2\. .* something you would have done differently/);
   assert.match(r.stdout, /## 3\. What is your current area of focus as you "Grow & Get Better"/);
-  // 5 Liferay values inlined.
   assert.match(r.stdout, /Produce Excellence/);
   assert.match(r.stdout, /Lead by Serving/);
   assert.match(r.stdout, /Value People/);
   assert.match(r.stdout, /Grow & Get Better/);
   assert.match(r.stdout, /Stay Nerdy/);
-  // Sources line surfaces the in-cycle monthly + topic page.
   assert.match(r.stdout, /Reports\/2026-02\.md/);
   assert.match(r.stdout, /Tickets\/LPD-12345\.md/);
-  // Dry-run does NOT write a Reviews file.
   assert.equal(existsSync(join(vault, 'Reviews', '2026-cycle1.md')), false);
-  // Dry-run does NOT print "wrote".
   assert.ok(!r.stdout.includes('wrote '));
 });
 
@@ -134,9 +124,7 @@ test('--since with malformed value exits 1', () => {
 });
 
 test('refuse-without-force on existing Reviews/<cycle>.md (D-03)', () => {
-  // Seed an existing review file.
   writeFileSync(join(vault, 'Reviews', '2026-cycle1.md'), '# Old hand-edited review\n', 'utf8');
-  // No --force; must refuse. Use PATH=/nonexistent so claude is missing —
   // the soft-fail path is taken AFTER the existence check, so the test
   // still asserts the existence-check fires first.
   const r = spawnSync(process.execPath, [CLI_ENTRY, 'self-review', '--cycle', '2026-cycle1'], {
@@ -151,31 +139,22 @@ test('refuse-without-force on existing Reviews/<cycle>.md (D-03)', () => {
   assert.equal(r.status, 1);
   assert.match(r.stderr, /already exists/);
   assert.match(r.stderr, /Use --force/);
-  // The file content must be untouched.
   const body = readFileSync(join(vault, 'Reviews', '2026-cycle1.md'), 'utf8');
   assert.match(body, /Old hand-edited review/);
 });
 
 test('--dry-run on a cycle with missing monthlies surfaces them in the prompt but does NOT backfill', () => {
-  // Cycle 2026-cycle1 = Jan 1 → Apr 30 (4 monthlies needed: 01, 02, 03, 04).
-  // We have only 2026-02.md; 01, 03, 04 are missing.
-  // (Slice 1 doesn't backfill at all; the missingMonthlyNote should appear.)
   const r = runCli(['--cycle', '2026-cycle1', '--dry-run']);
   assert.equal(r.status, 0, `stderr: ${r.stderr}`);
-  // No Reports/<other-month>.md was created by the dry-run.
   assert.equal(existsSync(join(vault, 'Reports', '2026-01.md')), false);
   assert.equal(existsSync(join(vault, 'Reports', '2026-03.md')), false);
   assert.equal(existsSync(join(vault, 'Reports', '2026-04.md')), false);
-  // The WINDOW_NOTE surfaces the missing monthlies as a hint to the user.
   assert.match(r.stdout, /WINDOW_NOTE:/);
   assert.match(r.stdout, /Missing monthlies/);
 });
 
-// Soft-fail-to-dry-run on missing claude
-// DIVERGENT from report --month behavior (which exits 2).
 
 test('Without --dry-run, missing `claude` soft-fails to dry-run with stderr notice', () => {
-  // Remove the existing review file so refuse-without-force does NOT fire first.
   const reviewPath = join(vault, 'Reviews', '2026-cycle1.md');
   try { unlinkSync(reviewPath); } catch {}
 
@@ -188,15 +167,11 @@ test('Without --dry-run, missing `claude` soft-fails to dry-run with stderr noti
     },
     encoding: 'utf8',
   });
-  // Soft-fail: exit 0 (NOT exit 2 — divergent from report --month).
   assert.equal(r.status, 0, `stderr: ${r.stderr}`);
   assert.match(r.stderr, /claude.* CLI not found on PATH/);
   assert.match(r.stderr, /printing prompt to stdout instead/);
-  // Prompt envelope present in stdout.
   assert.match(r.stdout, /CYCLE: 2026-cycle1/);
-  // No Reviews/<cycle>.md file was written.
   assert.equal(existsSync(reviewPath), false);
-  // No vault-config writeback either — that only happens after a successful claude invocation.
   const cfg = JSON.parse(readFileSync(join(vault, '.self-wiki', 'config.json'), 'utf8'));
   assert.equal(cfg.review.lastReviewedAt, null);
   assert.equal(cfg.review.lastReviewedCycle, null);
@@ -212,7 +187,6 @@ test('--prior-review reads the manual file and emits PRIOR_REVIEW block', () => 
 });
 
 test('auto-detect prior cycle review surfaces as PRIOR_GROWTH_FOCUS when present', () => {
-  // Seed Reviews/2025-cycle3.md with a Q3 section.
   writeFileSync(
     join(vault, 'Reviews', '2025-cycle3.md'),
     '# 2025-cycle3 review\n\n## 1. Stuff\n- x\n\n## 3. What is your current area of focus\n- pairing more\n\n## Sources\n- file.md\n',
@@ -225,47 +199,37 @@ test('auto-detect prior cycle review surfaces as PRIOR_GROWTH_FOCUS when present
 });
 
 test('Preflight stderr summary fires when monthlies are missing', () => {
-  // Tidy any prior-cycle review file that may have been seeded by previous
-  // tests so the dry-run path is deterministic.
   try { unlinkSync(join(vault, 'Reviews', '2025-cycle3.md')); } catch {}
   try { unlinkSync(join(vault, 'Reviews', '2026-cycle1.md')); } catch {}
 
   const r = runCli(['--cycle', '2026-cycle1', '--dry-run']);
   assert.equal(r.status, 0, `stderr: ${r.stderr}`);
-  // Cycle 2026-cycle1 = Jan 1 → Apr 30, fixture seeds only 2026-02.md.
   assert.match(r.stderr, /Resolving 2026-cycle1/);
   assert.match(r.stderr, /Monthlies needed: 2026-01, 2026-02, 2026-03, 2026-04/);
   assert.match(r.stderr, /✓ Reports\/2026-02\.md exists/);
-  // Dry-run path: "would generate (skipped — dry-run)".
   assert.match(r.stderr, /would generate \(skipped — dry-run\)/);
 });
 
 test('--dry-run does NOT trigger the auto-backfill cascade (D-07)', () => {
-  // Pre-condition: fixture has only 2026-02.md among 2026-cycle1's monthlies.
   try { unlinkSync(join(vault, 'Reports', '2026-01.md')); } catch {}
   try { unlinkSync(join(vault, 'Reports', '2026-03.md')); } catch {}
   try { unlinkSync(join(vault, 'Reports', '2026-04.md')); } catch {}
   try { unlinkSync(join(vault, 'Reviews', '2026-cycle1.md')); } catch {}
-  // Verify state before:
   assert.equal(existsSync(join(vault, 'Reports', '2026-01.md')), false);
   assert.equal(existsSync(join(vault, 'Reports', '2026-03.md')), false);
 
   const r = runCli(['--cycle', '2026-cycle1', '--dry-run']);
   assert.equal(r.status, 0);
 
-  // No new monthly files created by the dry-run.
   assert.equal(existsSync(join(vault, 'Reports', '2026-01.md')), false);
   assert.equal(existsSync(join(vault, 'Reports', '2026-03.md')), false);
   assert.equal(existsSync(join(vault, 'Reports', '2026-04.md')), false);
-  // No Reviews file either.
   assert.equal(existsSync(join(vault, 'Reviews', '2026-cycle1.md')), false);
-  // The WINDOW_NOTE in stdout uses the dry-run phrasing.
   assert.match(r.stdout, /WINDOW_NOTE:/);
   assert.match(r.stdout, /would be backfilled in non-dry-run/);
 });
 
 test('Without --dry-run, missing claude soft-fails BEFORE the cascade (no partial state)', () => {
-  // Fresh vault state — no Reviews file, no extra monthlies.
   const cycleFile = join(vault, 'Reviews', '2026-cycle1.md');
   try { unlinkSync(cycleFile); } catch {}
   try { unlinkSync(join(vault, 'Reports', '2026-01.md')); } catch {}
@@ -290,9 +254,7 @@ test('Without --dry-run, missing claude soft-fails BEFORE the cascade (no partia
   // being non-empty. The hoisted hasClaudeCli gate prevents partial state.
   assert.equal(existsSync(join(vault, 'Reports', '2026-01.md')), false);
   assert.equal(existsSync(join(vault, 'Reports', '2026-03.md')), false);
-  // No Reviews file.
   assert.equal(existsSync(cycleFile), false);
-  // Vault config unchanged (no writeback on soft-fail).
   const cfg = JSON.parse(readFileSync(join(vault, '.self-wiki', 'config.json'), 'utf8'));
   assert.equal(cfg.review.lastReviewedAt, null);
 });
@@ -301,7 +263,6 @@ test('Without --dry-run, missing claude soft-fails BEFORE the cascade (no partia
 test('--since 2026-02-15 snaps cycleName to 2026-cycle1 and emits partial-window WINDOW_NOTE (D-04)', () => {
   const r = runCli(['--since', '2026-02-15', '--dry-run']);
   assert.equal(r.status, 0, `stderr: ${r.stderr}`);
-  // Window: 2026-02-15 → 2026-04-30 (enclosing cycle = 2026-cycle1).
   assert.match(r.stdout, /CYCLE: 2026-cycle1 \(2026-02-15 → 2026-04-30\)/);
   assert.match(r.stdout, /WINDOW_NOTE:/);
   assert.match(r.stdout, /Custom window 2026-02-15 → 2026-04-30/);
@@ -309,7 +270,6 @@ test('--since 2026-02-15 snaps cycleName to 2026-cycle1 and emits partial-window
 });
 
 test('explicit --since overrides vault lastReviewedAt (REVIEW-02 precedence)', () => {
-  // Stamp lastReviewedAt to 2026-03-15; explicit --since should win.
   writeFileSync(
     join(vault, '.self-wiki', 'config.json'),
     JSON.stringify({
@@ -321,9 +281,7 @@ test('explicit --since overrides vault lastReviewedAt (REVIEW-02 precedence)', (
   const r = runCli(['--since', '2026-02-01', '--dry-run']);
   assert.equal(r.status, 0, `stderr: ${r.stderr}`);
   assert.match(r.stdout, /CYCLE: 2026-cycle1 \(2026-02-01 → 2026-04-30\)/);
-  // The vault-config wording must NOT appear — explicit --since took precedence.
   assert.ok(!r.stdout.includes('since last review'));
-  // Restore default.
   writeFileSync(
     join(vault, '.self-wiki', 'config.json'),
     JSON.stringify({
@@ -335,10 +293,8 @@ test('explicit --since overrides vault lastReviewedAt (REVIEW-02 precedence)', (
 });
 
 test('--last-cycle resolves to resolveCycle(today).previous (REVIEW-08)', () => {
-  // The exact cycle depends on the date the test runs; assert structurally.
   const r = runCli(['--last-cycle', '--dry-run']);
   assert.equal(r.status, 0, `stderr: ${r.stderr}`);
-  // Always emits CYCLE: <name> (<start> → <end>) where end ≤ today.
   assert.match(r.stdout, /CYCLE: \d{4}-cycle\d \(\d{4}-\d{2}-\d{2} → \d{4}-\d{2}-\d{2}\)/);
 });
 
@@ -346,7 +302,6 @@ test('Prompt template carries the value-tagging mandate verbatim (REVIEW-04)', (
   const tpl = readFileSync(new URL('../src/templates/prompts/self-review.md', import.meta.url).pathname, 'utf8');
   assert.match(tpl, /Every accomplishment MUST end with a value-tag clause/);
   assert.match(tpl, /\*\*<accomplishment>\*\* — <Value>\[, <Value>\]/);
-  // All 5 value names present.
   assert.match(tpl, /\*\*Produce Excellence\*\*/);
   assert.match(tpl, /\*\*Lead by Serving\*\*/);
   assert.match(tpl, /\*\*Value People\*\*/);
@@ -365,7 +320,6 @@ test('Prompt template mandates the final aggregated `## Sources` footer (REVIEW-
   const tpl = readFileSync(new URL('../src/templates/prompts/self-review.md', import.meta.url).pathname, 'utf8');
   assert.match(tpl, /\*\*`## Sources`\*\*/);
   assert.match(tpl, /aggregated source list/);
-  // Per-type groups documented in the template.
   assert.match(tpl, /### Monthly reports/);
   assert.match(tpl, /### Weekly reports/);
   assert.match(tpl, /### Topic pages/);
@@ -386,7 +340,6 @@ test('Prompt template manual-PRIOR_REVIEW-wins-on-collision rule is locked (D-12
 test('--cycle resolves window without --since', () => {
   const r = runCli(['--cycle', '2025-cycle3', '--dry-run']);
   assert.equal(r.status, 0, `stderr: ${r.stderr}`);
-  // Under FIXED semantics with [5,9,12]: 2025-cycle3 = Sep 1 → Dec 31 2025.
   assert.match(r.stdout, /CYCLE: 2025-cycle3 \(2025-09-01 → 2025-12-31\)/);
 });
 
@@ -397,6 +350,5 @@ test('--out flag overrides default Reviews/<cycle>.md path (mirrors monthly --ou
   // (The fixture vault is at <tmp>/vault, so customOut at <tmp>/custom-review.md is OUTSIDE it.)
   const r = runCli(['--cycle', '2026-cycle1', '--out', customOut, '--dry-run']);
   assert.equal(r.status, 0, `stderr: ${r.stderr}`);
-  // The "outside the vault" warning fires because <tmp>/custom-review.md is outside <tmp>/vault.
   assert.match(r.stderr, /--out path is outside the vault/);
 });

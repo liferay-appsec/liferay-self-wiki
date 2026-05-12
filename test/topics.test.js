@@ -30,7 +30,6 @@ after(() => {
 });
 
 beforeEach(() => {
-  // wipe vault contents between tests so each starts fresh
   rmSync(vault, { recursive: true, force: true });
   mkdirSync(join(vault, 'Daily'), { recursive: true });
   mkdirSync(join(vault, 'Tickets'), { recursive: true });
@@ -87,7 +86,6 @@ test('updateTopicsForSession merges an existing dated section in place', async (
     sessionNumber: 1,
   });
 
-  // append a second note to the SAME session and re-run
   writeDaily(
     '2026-04-27',
     `## Session 1 — Task: LPD-200 — t
@@ -106,7 +104,6 @@ test('updateTopicsForSession merges an existing dated section in place', async (
 
   const content = readFileSync(join(vault, 'Tickets', 'LPD-200.md'), 'utf8');
   assert.match(content, /more findings/);
-  // The dated section appears exactly once after merge.
   const matches = content.match(/## 2026-04-27 — Session 1/g) ?? [];
   assert.equal(matches.length, 1);
 });
@@ -143,7 +140,6 @@ test('updateTopicsForSession does nothing for an untagged note-less session', as
     dateStr: '2026-04-27',
     sessionNumber: 1,
   });
-  // No tickets created, no components created.
   assert.deepEqual(readdirSync(join(vault, 'Tickets')), []);
   assert.deepEqual(readdirSync(join(vault, 'Components')), []);
 });
@@ -278,7 +274,6 @@ test('reaped sessions can be folded into ticket pages by re-using updateTopicsFo
     dateStr,
     startedAt: new Date(`${dateStr}T11:49:00`),
   });
-  // Add a couple of notes (as the model would have during the session).
   const noteFile = join(vault, 'Daily', `${dateStr}.md`);
   let raw = readFileSync(noteFile, 'utf8');
   raw = raw.replace(
@@ -291,12 +286,10 @@ test('reaped sessions can be folded into ticket pages by re-using updateTopicsFo
   );
   writeFileSync(noteFile, raw, 'utf8');
 
-  // Reaper closes the orphan.
   const closed = await logger.closeOrphanedSentinels({ dateStr });
   assert.equal(closed.length, 1);
   assert.equal(closed[0].sessionNumber, 1);
 
-  // Topic update from reaped state shape works.
   await topics.updateTopicsForSession({ dateStr, sessionNumber: 1 });
   const ticketPath = paths.getTicketFilePath('LPD-86317');
   assert.ok(existsSync(ticketPath), 'ticket page created');

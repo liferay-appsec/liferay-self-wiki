@@ -60,7 +60,6 @@ test('resolveReviewWindow: --last-cycle resolves to resolveCycle(today).previous
     today: '2026-07-15',
     vaultConfig: defaultVaultCfg,
   });
-  // Today (Jul 15) is in 2026-cycle2 (May 1 → Aug 31) under Option B; previous = 2026-cycle1 (Jan 1 → Apr 30).
   assert.equal(r.cycleName, '2026-cycle1');
   assert.equal(r.start, '2026-01-01');
   assert.equal(r.end, '2026-04-30');
@@ -91,8 +90,6 @@ test('resolveReviewWindow: vault lastReviewedAt acts as implicit --since', () =>
 });
 
 test('resolveReviewWindow: D-01 default — bare invocation picks most recently ended cycle', () => {
-  // 2026-06-15 → resolveCycle.current = 2026-cycle2 (May 1 → Aug 31, NOT yet ended);
-  // .previous = 2026-cycle1 (Jan 1 → Apr 30, ended). So default = previous.
   const r = resolveReviewWindow({ today: '2026-06-15', vaultConfig: defaultVaultCfg });
   assert.equal(r.cycleName, '2026-cycle1');
   assert.equal(r.end, '2026-04-30');
@@ -100,8 +97,6 @@ test('resolveReviewWindow: D-01 default — bare invocation picks most recently 
 });
 
 test('resolveReviewWindow: D-01 default — at start of new cycle, prior cycle just ended', () => {
-  // 2026-05-01 → current = 2026-cycle2 (May 1 → Aug 31, NOT yet ended);
-  // previous = 2026-cycle1 (Jan 1 → Apr 30 — ended yesterday). Default = previous.
   const r = resolveReviewWindow({ today: '2026-05-01', vaultConfig: defaultVaultCfg });
   assert.equal(r.cycleName, '2026-cycle1');
 });
@@ -116,7 +111,6 @@ test('resolveReviewWindow: throws when vault config lacks review.cycleEndMonths'
 test('loadPriorCycleReview: manual path wins over auto-detect (D-12)', async () => {
   const manualPath = join(global.__reviewVault, 'manual.md');
   writeFileSync(manualPath, '# Old Review\n\n## 3. Growth\n- focus on testing\n', 'utf8');
-  // Also seed the auto-detect file — manual must still win.
   writeFileSync(join(global.__reviewVault, 'Reviews', '2025-cycle3.md'), '# Auto Review\n', 'utf8');
   const r = await loadPriorCycleReview({
     cycleName: '2026-cycle1',
@@ -165,12 +159,10 @@ test('loadPriorCycleReview: auto-detect Q3 from prior cycle when no manualPath',
   assert.equal(r.priorCycleName, '2025-cycle3');
   assert.match(r.body, /^## 3\. What is your current area of focus/);
   assert.match(r.body, /TDD adoption/);
-  // Must NOT include the next ## Sources section.
   assert.ok(!r.body.includes('## Sources'));
 });
 
 test('loadPriorCycleReview: auto-detect with no prior file → null', async () => {
-  // Remove the prior file.
   const priorPath = join(global.__reviewVault, 'Reviews', '2025-cycle3.md');
   try { (await import('fs')).unlinkSync(priorPath); } catch {}
   const r = await loadPriorCycleReview({
@@ -181,7 +173,6 @@ test('loadPriorCycleReview: auto-detect with no prior file → null', async () =
 });
 
 test('loadInCycleTopicPages: surfaces topic pages with in-cycle ## date headers', async () => {
-  // Use the same global.__reviewVault from the earlier setup.
   const vault = global.__reviewVault;
   mkdirSync(join(vault, 'Tickets'), { recursive: true });
   mkdirSync(join(vault, 'Components'), { recursive: true });
@@ -226,12 +217,10 @@ test('buildSelfReviewPrompt: emits CYCLE, MONTHLIES (primary), WEEKLIES (seconda
   const iW = out.indexOf('WEEKLIES:');
   const iT = out.indexOf('TOPIC_PAGES:');
   assert.ok(iM < iW && iW < iT, `expected order MONTHLIES < WEEKLIES < TOPIC_PAGES; got ${iM}, ${iW}, ${iT}`);
-  // Per-input separators present.
   assert.match(out, /## --- 2026-01 ---/);
   assert.match(out, /## --- 2026-02 ---/);
   assert.match(out, /## --- 2026-W14 ---/);
   assert.match(out, /## --- LPD-12345 ---/);
-  // Sources line surfaces files.
   assert.match(out, /Reports\/2026-01\.md/);
   assert.match(out, /Reports\/2026-02\.md/);
   assert.match(out, /Reports\/2026-W14\.md/);
