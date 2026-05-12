@@ -2,15 +2,5 @@ node_modules/
 *.log
 .DS_Store
 
-# GSD planning artifacts (commit_docs=false). The codebase map and PROJECT.md
-# were intentionally committed before this took effect; they stay tracked.
-# Everything else GSD generates stays local.
-.planning/REQUIREMENTS.md
-.planning/ROADMAP.md
-.planning/STATE.md
-.planning/config.json
-.planning/phases/
-.planning/research/
-.planning/intel/
-.planning/learnings/
-.planning/graphs/
+# GSD planning artifacts — never committed.
+.planning/

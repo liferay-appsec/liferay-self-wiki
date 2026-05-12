@@ -1,11 +1,3 @@
-// src/core/cycles.js — pure cycle-boundary helper. No imports. UTC-only arithmetic.
-// See .planning/phases/01-cycle-config-vault-scaffold/01-CONTEXT.md (D-01..D-06)
-// and src/utils/format.js for the canonical UTC-arithmetic pattern.
-//
-// Phases 2 and 3 will call resolveCycle(date, cycleEndMonths) to derive the
-// {current, previous} cycle window. Cycle math is deterministic per CLAUDE.md
-// — never delegate this to claude -p.
-
 const INVALID_MONTHS_MSG =
   'cycleEndMonths must be a non-empty sorted array of integers 1–12';
 
