@@ -280,6 +280,4 @@ Apache 2.0. See [LICENSE](LICENSE) for the license text and [NOTICE](NOTICE) for
 
 ## Support / Feedback
 
-Quick chatter / questions: `#self-wiki-feedback (TODO: confirm channel name)` on Liferay Slack.
-
 Bugs / feature requests: https://github.com/liferay-appsec/liferay-self-wiki/issues.
