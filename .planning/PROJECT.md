@@ -1,23 +1,36 @@
 # self-wiki
 
-## Current Milestone: v1.1 Public Release for Liferay Engineers
+## Current State
+
+**Shipped:** v1.1 Public Release for Liferay Engineers (2026-05-12). v1.0 + v1.1 both shipped; tool is ready for a Slack-channel announcement.
+
+**Latest milestone (v1.1):** Apache 2.0 LICENSE + NOTICE at repo root, CONTRIBUTING.md pointing at CLAUDE.md architectural rules, demo-first README rewrite with real clone URL and inline example-output snippets, four scrubbed reference artifacts under `docs/examples/`, `self-wiki doctor` diagnostic command with narrow-fix init flags, README `## Troubleshooting` section keyed to doctor's output, paste-edit-ready Slack announcement at `docs/launch-post.md`, README `## Support / Feedback` section. 257/257 tests; install path unregressed across all four phases.
+
+**Next milestone:** TBD. Run `/gsd-new-milestone` to scope v1.2.
+
+## Next Milestone Goals
+
+<details>
+<summary>v1.1 milestone goals (archived 2026-05-12 — kept for reference)</summary>
 
 **Goal:** Make self-wiki land cleanly when shared in a Slack channel with all Liferay engineers — a fresh dev can clone, install, and trust it within their first hour.
 
-**Target features:**
+**Target features (all shipped):**
 
 - Public-grade README restructured demo-first, with real repo URL, annotated daily-log / weekly-report / self-review snippets, and a "what you'll get in your first week" outcome.
-- Sample (scrubbed) outputs committed to `docs/examples/` as reference artifacts — daily log, weekly report, monthly report, self-review draft. Anchors the README's claims; reduces "is this worth my time?" friction.
-- Install UX hardening: a `self-wiki doctor` diagnostic command (Node version, vault config, hook merge, permissions presence, `claude` CLI availability) plus a fresh-user dry-run pass that fixes anything rough.
-- `LICENSE` (Apache 2.0) and `CONTRIBUTING.md` (points at `CLAUDE.md` architecture rules + no-PR-without-tests bar) at repo root, plus a short "what gets logged in your vault" privacy posture note so users know what's in their own daily files.
-- Launch kit: Slack announcement draft at `docs/launch-post.md` (value prop, 30-second pitch, install steps, FAQ skeleton), and a feedback channel reference in the README so users know where to report issues.
+- Sample (scrubbed) outputs committed to `docs/examples/` as reference artifacts — daily log, weekly report, monthly report, self-review draft.
+- Install UX hardening: a `self-wiki doctor` diagnostic command (Node version, vault config, hook merge, permissions presence, `claude` CLI availability) plus narrow-fix init flags.
+- `LICENSE` (Apache 2.0) and `CONTRIBUTING.md` (points at `CLAUDE.md` architecture rules + no-PR-without-tests bar) at repo root.
+- Launch kit: Slack announcement draft at `docs/launch-post.md` and a feedback channel reference in the README.
 
-**Key context:**
+**Key context (still applies for v1.2 unless explicitly revised):**
 
 - Distribution model unchanged: clone + `npm install -g .` from `liferay-appsec/liferay-self-wiki`. No npm publish, no public-github surface.
-- Liferay-specific defaults stay baked in (cycle `[5,9,12]`, 5 values, `LPD-` regex) — they are the value prop, not a bug. Examples in docs get generalized so no real ticket bodies or PR titles from the author's vault land in the repo.
-- No new product features. No re-architecture. v1.0's product surface is the product surface. v2.0's reserved scope (TREND-01..03, TOOL-01..02) remains future.
-- License: **Apache 2.0** — patent grant + industry-default for dev tooling; safe posture if the repo ever moves to public github.com.
+- Liferay-specific defaults stay baked in (cycle `[5,9,12]`, 5 values, `LPD-` regex) — they are the value prop, not a bug.
+- No new product features. v1.0's product surface is the product surface. v2.0's reserved scope (TREND-01..03, TOOL-01..02) remains future.
+- License: **Apache 2.0** — patent grant + industry-default for dev tooling.
+
+</details>
 
 ## What This Is
 
@@ -46,13 +59,16 @@ A CLI + Claude Code skill + Claude Code hooks that turns every `claude` session 
 - ✓ **CYCLE-PHASE1** — Phase 1 (Cycle Config & Vault Scaffold) shipped: `resolveCycle(date, cycleEndMonths)` deterministic helper in `src/core/cycles.js` (Liferay default `[5,9,12]` + portable cadences); `VAULT_DEFAULTS.review` block + `writeVaultConfig` deep-merge for `review` + `getVaultDefaults` → `structuredClone` (lifts latent shared-ref bug); `Reviews/` added to vault scaffold (`paths.js`, `init.js`, vault seed); `src/core/reviews.js#ensureReviewsDir(vaultPath)` for pre-existing vault migration. Substrate for milestone REVIEW-* requirements. — v1.0. **Corrigendum (Phase 3 D-PREREQ):** the shipped boundary calculation chained cycle1 across the year boundary, yielding a 5/4/3-month split for `[5,9,12]`; Phase 3 wave 1 fixes this with Option B (cycle1 always starts Jan 1; last cycle of year always ends Dec 31), restoring uniform 4-month cycles for Liferay's calendar. Tradeoff: alternate cadences like `[6,12]` are no longer guaranteed-uniform. See `.planning/milestones/v1.0-phases/...` (when archived) and `src/core/cycles.js`.
 - ✓ **MONTH-01..06** — Phase 2 (Monthly Report) shipped: `self-wiki report --month [YYYY-MM]` orchestrates a themed monthly synthesis at `Reports/<YYYY-MM>.md` from existing weeklies + in-month topic pages, with deterministic metrics computed in code via shape-parametrized `src/core/metrics.js` and prose through `claude -p`. Versioned prompt at `src/templates/prompts/monthly-report.md` surfaces themes/threads/recurring tickets (not session-by-session). Supports `--dry-run`, partial-month note, regenerated marker, prior-month carry-over, and auto-backfill of missing weeklies (Plan 02-03). — v1.0.
 - ✓ **REVIEW-01..09** — Phase 3 (Self-Review Report) shipped: `self-wiki self-review` produces a draft at `Reviews/<YYYY>-cycle<N>.md` shaped to the three Liferay review questions, with accomplishments tagged by Liferay values (Produce Excellence, Lead by Serving, Value People, Grow & Get Better, Stay Nerdy), sourced from monthlies (primary) + weeklies (secondary) + topic pages (ground truth). Slice-1: bare invocation, --cycle / --last-cycle / --since / --prior-review / --dry-run / --force / --out flag matrix, refuse-without-force, soft-fail-to-dry-run on missing claude, vault-config writeback of `lastReviewedAt` + `lastReviewedCycle`. Slice-2: auto-backfill cascade for missing monthlies (single hoisted `hasClaudeCli` gate; preflight stderr "Monthlies needed:" summary). Prompt template at `src/templates/prompts/self-review.md` iterable like weekly/monthly. — v1.0 (240/240 tests; 9/9 must-haves; 5/5 roadmap success criteria; 3/3 human-UAT paste-readiness checks pass against real Liferay vault).
+- ✓ **LEG-01..02** — Phase 04 (Legal & Contributor Onboarding) shipped: `LICENSE` is the verbatim 202-line Apache License 2.0 from apache.org with the `[yyyy]` and `[name of copyright owner]` appendix placeholders intact; `NOTICE` is the canonical 4-line attribution under "The self-wiki authors" (no `Liferay, Inc.`, no MIT residue). `CONTRIBUTING.md` is a 72-line four-section pointer page (Where to file issues → Architectural contract → Dev flow → Tests) that names all four `CLAUDE.md` architectural rules verbatim (`autonomy-at-the-hook`, `daily-logs-as-source-of-truth`, `deterministic-vs-model`, `soft-deps-degrade-silently`), the `npm link` dev flow, and the no-PR-without-tests bar. GitHub Issues URL is `https://github.com/liferay-appsec/liferay-self-wiki/issues` (mirrored across README, CONTRIBUTING.md, and launch-post). — v1.1 (7/7 verification truths PASS; pre-existing tech debt: clean-install human-needed verification on pristine env).
+- ✓ **DOCS-01..05** — Phase 05 (Public-Grade Documentation) shipped: demo-first README rewrite — value-prop / privacy-posture leads, real `liferay-appsec/liferay-self-wiki.git` clone URL replaces every `<this-repo-url>` placeholder, three inline `**Example output:**` snippets (daily / weekly / self-review) with `[→ Full example: docs/examples/<file>.md]` link rows for all four artifact types, `### Captured` / `### Not captured` enumeration, scrub-pointer prose, and the "Nothing leaves your machine automatically." privacy line. Four scrubbed reference artifacts under `docs/examples/` (daily-log, weekly-report, monthly-report, self-review) on a fictional `EXAMPLE-NNN` storyline; per-file HTML disclaimers. CLAUDE.md `§Testing locally` updated to reflect the real 240-test reality (replaces the v0.1 "no test suite yet" claim). — v1.1 (Phase 05-01: DOCS-05 artifacts; Phase 05-02: DOCS-01..04 README rewrite; Phase 05-03: CLAUDE.md staleness fix; 6/6 must-haves).
 - ✓ **INST-01..03** — Phase 06 (Install UX Hardening) shipped: `self-wiki doctor` runs seven deterministic checks (Node ≥ 20, claude CLI on PATH, vault config present, vault path exists on disk, hooks merged in settings.json, permissions merged in settings.json, wiki skill installed) across Runtime/Vault/Claude Code wiring with ✓/✗ + one-line `→ ` remediation hints, Tier-2 drift lines for hooks and permissions (informational, no exit-code flip), terse summary line, and non-zero exit on any ✗. `self-wiki init --hooks-only` / `--permissions-only` / `--skill-only` provide narrow-fix flags that combine cleanly and short-circuit before vault scaffolding — making doctor's remediation hints executable. README `## Troubleshooting` section maps three symptoms (sessions not opening, no notes captured, approval prompts) to doctor check labels and `--X-only` fix commands; cross-source string contract holds (all 7 labels + 2 drift tokens grep-verifiable in both `README.md` and `src/commands/doctor.js`). — v1.1 (257/257 tests; 8/8 must-haves; 5/5 ROADMAP success criteria).
+- ✓ **LAUNCH-01..02** — Phase 07 (Launch Kit) shipped: `docs/launch-post.md` is a 1498-char GitHub-flavored-markdown Slack-paste-ready announcement with five locked-order sections (block-quoted personal-sentence placeholder → Value prop → 30-second outcome-led pitch leading with the self-review payoff → 60-second install fenced block byte-mirroring README's install plus `self-wiki doctor` as the 6th line → first-week-outcome concrete-artifact list linking all four `docs/examples/` files → feedback line); honest distribution sentence states `liferay-appsec/liferay-self-wiki` + `npm install -g .` with no npm-publish/public-github/v2 references; emoji-shortcode and emoji-glyph grep gates green. README `## Support / Feedback` is a two-line tail-appended pointer (Slack `#self-wiki-feedback (TODO: confirm channel name)` for chatter; `https://github.com/liferay-appsec/liferay-self-wiki/issues` for bugs / feature requests) that is byte-identical with the launch-post's placeholder. CONTRIBUTING.md stays Slack-free (D-ISSUE-NOT-SLACK). — v1.1 (257/257 tests; 4/4 success criteria; 12/12 must-haves PASS; one accepted deviation: positive distribution framing to avoid the verify gate's "registry" forbidden-token).
 
 ### Active
 
-<!-- Current scope for milestone v1.1 — defined by /gsd-new-milestone 2026-05-11. REQ-IDs filled in by REQUIREMENTS.md. -->
+<!-- Cleared at v1.1 close. Run /gsd-new-milestone to scope v1.2. -->
 
-_(see `.planning/REQUIREMENTS.md` for v1.1 REQ-IDs grouped by DOCS / INSTALL / LEGAL / EXAMPLES / LAUNCH)_
+_(no active requirements — v1.1 shipped 2026-05-12)_
 
 ### Out of Scope
 
@@ -69,13 +85,18 @@ _(see `.planning/REQUIREMENTS.md` for v1.1 REQ-IDs grouped by DOCS / INSTALL / L
 
 ## Context
 
-**Brownfield, v0.1 → v1.0 shipped 2026-05-11.** Self-wiki is in daily use by one engineer (the author). Codebase is mapped at `.planning/codebase/`: Node 20+ ESM, Commander CLI, ~10 subcommands, 11 core/utils modules. Architectural rules are in `CLAUDE.md` (autonomy boundary at the hook; daily logs are source of truth; deterministic-vs-model split; soft dependencies degrade silently). The synthesis pattern is well-established for weekly, monthly, and self-review reports — versioned prompt templates at `src/templates/prompts/{weekly,monthly,self-review}-report.md`, deterministic metrics computed in `src/core/metrics.js` + `src/utils/log-parser.js`, model invocation through `src/core/claude.js`.
+**Brownfield, v0.1 → v1.0 → v1.1 shipped 2026-05-12.** Self-wiki is in daily use by one engineer (the author) and ready for a Slack-channel announcement to all Liferay engineers. Codebase is mapped at `.planning/codebase/`: Node 20+ ESM, Commander CLI, ~11 subcommands (including `doctor`), 11 core/utils modules. Architectural rules are in `CLAUDE.md` (autonomy boundary at the hook; daily logs are source of truth; deterministic-vs-model split; soft dependencies degrade silently). The synthesis pattern is well-established for weekly, monthly, and self-review reports — versioned prompt templates at `src/templates/prompts/{weekly,monthly,self-review}-report.md`, deterministic metrics computed in `src/core/metrics.js` + `src/utils/log-parser.js`, model invocation through `src/core/claude.js`.
 
-**The user is a Liferay engineer.** Liferay's performance-review cycle is 4 months long, with windows ending May, September, and December. The review form has three free-text questions (accomplishments, would-do-differently, growth focus). Liferay has 5 stated values: Produce Excellence, Lead by Serving, Value People, Grow & Get Better, Stay Nerdy. v1.0 delivers the headline command (`self-wiki self-review`) that produces a paste-ready draft at cycle end.
+**The user is a Liferay engineer.** Liferay's performance-review cycle is 4 months long, with windows ending May, September, and December. The review form has three free-text questions (accomplishments, would-do-differently, growth focus). Liferay has 5 stated values: Produce Excellence, Lead by Serving, Value People, Grow & Get Better, Stay Nerdy. v1.0 delivered the headline command (`self-wiki self-review`); v1.1 delivered the public-grade onboarding surface so a fresh Liferay engineer can clone, install, verify with `self-wiki doctor`, and trust the tool within their first hour.
 
-**Current codebase size (v1.0 close).** ~7,885 LOC across `src/` (4,128) and `test/` (3,757); 240 tests passing; 129 commits in the milestone window (2026-04-27 → 2026-05-11; 14 days).
+**Current codebase size (v1.1 close).** 257 tests passing (added 17 in v1.1: doctor + init-narrow-flags). v1.1 commits: 41 commits over 2 calendar days (2026-05-11 → 2026-05-12). Repo-level adds: `LICENSE` (Apache 2.0, 202 lines), `NOTICE` (4 lines), `CONTRIBUTING.md` (72 lines), `docs/examples/*` (4 scrubbed artifacts), `docs/launch-post.md` (43 lines), `src/commands/doctor.js` (248 lines); README expanded with demo-first reordering, Troubleshooting, and Support / Feedback sections.
 
-**Known carry-forward at v1.0 close.** TOCTOU race on refuse-without-force (CR-01) was addressed via WR-* fixups but documented as relying on the single-user assumption. Trend analysis (TREND-01..03) and Liferay-form export helper (TOOL-01..02) are deferred to v2 (see archived `milestones/v1.0-REQUIREMENTS.md`).
+**Known carry-forward at v1.1 close.**
+- TOCTOU race on refuse-without-force (CR-01, from v1.0) remains documented as relying on the single-user assumption.
+- Trend analysis (TREND-01..03) and Liferay-form export helper (TOOL-01..02) remain deferred to v2 (see archived `milestones/v1.0-REQUIREMENTS.md`).
+- Phase 04 verifier flagged a human-needed clean-install test: `npm install -g . && self-wiki --help` on a pristine machine (executor environment had a stale `npm link` symlink that masked the regression check). Not v1.1-introduced; worth one real pristine-environment test before any public-distribution work.
+- Milestone audit INT-3 fixed inline at v1.1 close: README install block now matches launch-post (6 lines, ending with `self-wiki doctor`).
+- Milestone audit INT-8 accepted as tech debt: cosmetic trailing-period mismatch on the Issues URL line between README and launch-post (URL byte-identical, link resolves).
 
 ## Constraints
 
@@ -102,6 +123,12 @@ _(see `.planning/REQUIREMENTS.md` for v1.1 REQ-IDs grouped by DOCS / INSTALL / L
 | Output to `Reviews/<YYYY>-cycle<N>.md`, not `Reports/` | Reports are time-window summaries; reviews are review-cycle artifacts. Different purpose, different lifecycle (rarely regenerated), different folder. | ✓ Good — v1.0 (Reviews/ scaffolded by init; getReviewFilePath helper) |
 | Phase 3 D-PREREQ: Option B cycle boundaries (cycle1=Jan 1; last cycle=Dec 31) | Phase 1's chained boundary produced 5/4/3-month split for Liferay's `[5,9,12]`. Option B restores uniform 4-month cycles; tradeoff: alternate cadences like `[6,12]` are no longer guaranteed-uniform. | ✓ Good — v1.0 (Phase 3 wave 1; cycles.js + test/cycles.test.js rewritten; Phase 1 + PROJECT.md corrigendum) |
 | Auto-backfill cascade gated by single hoisted `hasClaudeCli` preflight | Avoids two backfill cascades dying mid-flight on missing claude. Single gate + stderr "Monthlies needed:" summary is debuggable; dry-run never backfills. | ✓ Good — v1.0 (Plan 03-06; hoisted-gate-before-cascade structural guard) |
+| LICENSE = Apache 2.0 with `[yyyy]` + `[name of copyright owner]` placeholders intact (D-LEG-01-OVERRIDE) | Verbatim apache.org form is safer than a partially-filled variant if the repo ever moves to public github.com; copyright-holder line stays "The self-wiki authors" not "Liferay, Inc." since the tool is personal-scope by design. | ✓ Good — v1.1 (Phase 04; 202-line LICENSE; no Liferay Inc / MIT residue) |
+| Demo-first README ordering (D-README-ORDER): What you get → What gets logged → Install (not Install → What you get) | A first-time Liferay engineer needs to see the value prop before deciding to clone — install-first reads as setup friction with no payoff visible. | ✓ Good — v1.1 (Phase 05-02; 14 H2 sections in demo-first order) |
+| Inline `**Example output:**` snippets + `[→ Full example: docs/examples/...]` links pattern (D-SNIPPET-PATTERN) | Three snippets give scannable proof; the link gives full depth for the curious. Monthly uses link-only (D-SNIPPET-MONTHLY) because monthly output is longer than the snippet budget. | ✓ Good — v1.1 (Phase 05-02; 3 snippets + 4 link rows) |
+| Doctor's drift lines emit as single contiguous chalk literals (`chalk.dim('i hooks:')`, not `chalk.dim('i') + ' hooks:'`) | Phase 06-03 README↔source grep contract requires substring-level identity between README Troubleshooting and doctor.js. Concatenated calls broke the grep contract. | ✓ Good — v1.1 (Phase 06-03 fix; 9-string cross-source contract verified) |
+| Phase 07 launch-post uses positive distribution framing rather than negative disclaimer | The plan's verify gate forbade `registry` (part of the `npm publish|npmjs.com|registry` blacklist). Phrasing "Internal Liferay tool — clone from liferay-appsec/..." preserves the success-criterion-4 intent (post is honest about distribution) without tripping its own gate. | ✓ Good — v1.1 (Phase 07-01; verifier accepted the deviation; recorded in 07-VERIFICATION.md) |
+| INT-3 fix: README install block ends with `self-wiki doctor` (matches launch-post) | Launch-post taught readers to run `doctor` after init; README install didn't. v1.1 milestone audit flagged this divergence. One-line README fix made the two install flows byte-identical for all 6 lines. | ✓ Good — v1.1 close (commit 4cabae5; cosmetic trailing-period mismatch INT-8 left as tech debt) |
 
 ## Evolution
 
@@ -121,4 +148,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-11 — Phase 06 (Install UX Hardening) complete: INST-01..03 validated; `self-wiki doctor` + `init --X-only` + README Troubleshooting shipped (257/257 tests).*
+*Last updated: 2026-05-12 — v1.1 milestone shipped (Public Release for Liferay Engineers): LEG-01..02 + DOCS-01..05 + INST-01..03 + LAUNCH-01..02 validated; 257/257 tests; audit status=tech_debt (INT-3 fixed inline, INT-8 cosmetic deferred).*
