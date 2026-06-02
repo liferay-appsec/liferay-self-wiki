@@ -17,7 +17,8 @@ function killWithGrace(child) {
 }
 
 export async function claudeHeadless(prompt, opts = {}) {
-  const args = ['-p'];
+  // Pin the mode: an un-pinned `claude -p` inherits a plan-mode default and returns a plan stub, not the synthesis.
+  const args = ['-p', '--permission-mode', opts.permissionMode ?? 'default'];
   if (opts.model) args.push('--model', opts.model);
   const timeoutMs = opts.timeoutMs ?? DEFAULT_HEADLESS_TIMEOUT_MS;
   return new Promise((resolve, reject) => {
