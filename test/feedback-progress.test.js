@@ -162,6 +162,57 @@ test('resolveApplicableFeedbackCycle uses default cycleEndMonths when cfg has no
   assert.equal(result.cycleName, '2025-cycle1');
 });
 
+test('resolveApplicableFeedbackCycle soft-degrades to null on malformed cycleEndMonths (CR-01)', async () => {
+  // A hand-edited vault config with an invalid cycleEndMonths must NOT crash the
+  // report — resolveCycle throws on these, and the soft-degrade rule requires the
+  // optional block to be omitted, not the whole command to abort.
+  const malformed = [
+    { review: { cycleEndMonths: [9, 5] } },        // not strictly increasing
+    { review: { cycleEndMonths: [5, 5, 12] } },     // duplicate / non-strict
+    { review: { cycleEndMonths: [13] } },           // out of range
+    { review: { cycleEndMonths: [] } },             // empty
+    { review: { cycleEndMonths: '5,9,12' } },       // wrong type
+  ];
+  for (const cfg of malformed) {
+    const result = await resolveApplicableFeedbackCycle('2026-06-15', cfg);
+    assert.equal(result, null, `expected null for cfg ${JSON.stringify(cfg)}`);
+  }
+});
+
+test('buildProgressFeedbackBlock soft-degrades to null on malformed cycleEndMonths (CR-01)', async () => {
+  // End-to-end: the single entry point the report orchestrators call must also
+  // return null (block omitted) rather than throwing.
+  const result = await buildProgressFeedbackBlock(
+    '2026-06-15',
+    { review: { cycleEndMonths: [9, 5] } },
+    { corpusLabel: 'week', corpusBlock: '## --- 2026-06-15 ---\n\n(notes)' },
+  );
+  assert.equal(result, null);
+});
+
+test('buildProgressFeedbackBlock renders fallback assessments without claude when hasEvidence is false (WR-02)', async () => {
+  // 2026-06-19 is in 2026-cycle2; previous = 2026-cycle1 (ends 2026-04-30).
+  writeFileSync(
+    join(vault, 'Reviews', '2026-cycle1-manager.md'),
+    managerReviewBody('2026-cycle1', [
+      { id: 'FB-1', text: 'Be more concise in PR descriptions' },
+      { id: 'FB-2', text: 'Pair more on tricky reviews' },
+    ]),
+    'utf8',
+  );
+  // hasEvidence:false must skip the model call entirely and still render the block
+  // with the deterministic fallback for every item — no claude CLI needed.
+  const result = await buildProgressFeedbackBlock(
+    '2026-06-19',
+    DEFAULT_CFG,
+    { corpusLabel: 'month', corpusBlock: '', hasEvidence: false },
+  );
+  assert.ok(result !== null);
+  assert.equal(result.cycleName, '2026-cycle1');
+  assert.match(result.block, /- \*\*FB-1\*\*: Be more concise in PR descriptions/);
+  assert.match(result.block, /No activity noted this period\./);
+});
+
 // ─── renderProgressBlock ─────────────────────────────────────────────────────
 
 test('renderProgressBlock starts with ## Progress vs. review feedback heading', () => {

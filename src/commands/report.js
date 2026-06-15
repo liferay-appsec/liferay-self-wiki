@@ -68,8 +68,13 @@ export async function reportCommand(opts = {}) {
 
 // `internal: true` is set by reportMonthOrchestrator's auto-backfill loop.
 // In that mode the stderr line is rephrased "backfilling", the user-facing
-// `wrote <path>` line is suppressed, and the inner hasClaudeCli re-check is
-// skipped because the caller already gated upstream.
+// `wrote <path>` line is suppressed, the inner hasClaudeCli re-check is
+// skipped because the caller already gated upstream, and — by design — the
+// "Progress vs. review feedback" block is omitted: a backfilled weekly is a
+// side effect of a monthly run that already carries the block itself, so
+// backfilling N weeklies must not fan out into N extra `claude -p` assessment
+// calls. A weekly generated directly via `report --week` does carry the block;
+// this carve-out is documented in the README (WR-01).
 async function reportWeekOrchestrator(opts) {
   const internal = opts.internal === true;
   const week = opts.week || isoWeek();
@@ -106,13 +111,18 @@ async function reportWeekOrchestrator(opts) {
   }
 
   const metrics = await buildMetrics(present, { shape: 'week' });
-  const cfg = await readVaultConfig();
+  // Build the daily corpus once — shared by the synthesis prompt and the
+  // progress-assessment evidence so the two can never drift apart (WR-03).
   const corpusBlock = dailies.map((d) => `## --- ${d.dateStr} ---\n\n${d.raw.trim()}`).join('\n\n');
-  const progress = (opts.dryRun || internal)
-    ? null
-    : await buildProgressFeedbackBlock(dates.at(-1), cfg, { corpusLabel: 'week', corpusBlock });
+  // cfg is only needed for the progress block; skip the read on dry-run / internal (IN-01).
+  // present.length > 0 is guaranteed above, so the period always has evidence here.
+  let progress = null;
+  if (!opts.dryRun && !internal) {
+    const cfg = await readVaultConfig();
+    progress = await buildProgressFeedbackBlock(dates.at(-1), cfg, { corpusLabel: 'week', corpusBlock });
+  }
   const priorReport = await loadPriorReport(week);
-  const prompt = await buildPrompt({ week, metrics, dailies, present, missing, priorReport });
+  const prompt = await buildPrompt({ week, metrics, corpusBlock, present, missing, priorReport });
 
   if (opts.dryRun) {
     process.stdout.write(prompt + '\n');
@@ -164,10 +174,11 @@ async function loadPriorReport(week) {
   }
 }
 
-async function buildPrompt({ week, metrics, dailies, present, missing, priorReport }) {
+async function buildPrompt({ week, metrics, corpusBlock, present, missing, priorReport }) {
   const promptHeader = await readFile(PROMPT_PATH, 'utf8');
   const sourcesLine = `Sources: ${present.map((d) => `\`Daily/${d}.md\``).join(', ')}.${missing.length > 0 ? ` Missing: ${missing.join(', ')}.` : ''}`;
-  const dailiesBlock = dailies.map((d) => `## --- ${d.dateStr} ---\n\n${d.raw.trim()}`).join('\n\n');
+  // Reuse the corpus the orchestrator already built (WR-03 — single source of truth).
+  const dailiesBlock = corpusBlock;
   const parts = [
     promptHeader,
     '',
@@ -338,9 +349,13 @@ export async function reportMonthOrchestrator(opts) {
     ? topicPages.map((t) => `## --- ${t.slug} ---\n\n${t.raw.trim()}`).join('\n\n')
     : '(no in-month topic pages)';
   const monthCorpusBlock = [weekliesCorpus, topicCorpus].join('\n\n');
-  const progress = (opts.dryRun || internal)
-    ? null
-    : await buildProgressFeedbackBlock(lastDayOfMonth, cfg, { corpusLabel: 'month', corpusBlock: monthCorpusBlock });
+  // When the month has no real evidence (no present weeklies AND no in-month topic
+  // pages), skip the assessment model call and render the deterministic fallback (WR-02).
+  const haveEvidence = presentWeeks.length > 0 || topicPages.length > 0;
+  let progress = null;
+  if (!opts.dryRun && !internal) {
+    progress = await buildProgressFeedbackBlock(lastDayOfMonth, cfg, { corpusLabel: 'month', corpusBlock: monthCorpusBlock, hasEvidence });
+  }
 
   const prompt = await buildMonthlyPrompt({
     month,

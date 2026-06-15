@@ -42,7 +42,16 @@ export async function resolveApplicableFeedbackCycle(periodDateStr, cfg) {
   let probe = periodDateStr;
   let body;
   for (let i = 0; i < MAX_WALK; i++) {
-    const { previous } = resolveCycle(probe, cycleEndMonths);
+    let previous;
+    try {
+      ({ previous } = resolveCycle(probe, cycleEndMonths));
+    } catch {
+      // Malformed cycleEndMonths in the hand-editable vault config (empty,
+      // unsorted, out-of-range, wrong type) makes resolveCycle throw. Soft-degrade
+      // (CLAUDE.md rule): omit the optional block rather than aborting the whole
+      // report. Treated the same as "no applicable cycle" (CR-01).
+      return null;
+    }
     // D-01: only consider cycles whose end is strictly before the period date.
     // This guards against surfacing the current (in-progress) cycle.
     if (previous.end >= periodDateStr) break;
@@ -148,17 +157,24 @@ export async function synthesizeFeedbackAssessments({ items, corpusLabel, corpus
  *
  * @param {string} periodDateStr  ISO date of the report period
  * @param {object} cfg            Vault config
- * @param {{ corpusLabel: string, corpusBlock: string }} evidence  Period corpus for assessment
+ * @param {{ corpusLabel: string, corpusBlock: string, hasEvidence?: boolean }} evidence
+ *        Period corpus for assessment. `hasEvidence` (default true) is false when the
+ *        period has no real corpus (no dailies / no weeklies+topic pages) — in that case
+ *        the model call is skipped and every item gets the deterministic fallback (WR-02).
  * @returns {Promise<{ cycleName: string, block: string } | null>}
  */
-export async function buildProgressFeedbackBlock(periodDateStr, cfg, { corpusLabel, corpusBlock }) {
+export async function buildProgressFeedbackBlock(periodDateStr, cfg, { corpusLabel, corpusBlock, hasEvidence = true }) {
   const feedbackCycle = await resolveApplicableFeedbackCycle(periodDateStr, cfg);
   if (!feedbackCycle) return null; // RRPT-04: caller omits the block
-  const assessments = await synthesizeFeedbackAssessments({
-    items: feedbackCycle.items,
-    corpusLabel,
-    corpusBlock,
-  });
+  // No evidence in the period → skip the claude -p round-trip and render the
+  // "No activity noted this period." fallback for every item deterministically (WR-02).
+  const assessments = hasEvidence
+    ? await synthesizeFeedbackAssessments({
+        items: feedbackCycle.items,
+        corpusLabel,
+        corpusBlock,
+      })
+    : new Map();
   return {
     cycleName: feedbackCycle.cycleName,
     block: renderProgressBlock(feedbackCycle.items, assessments),
