@@ -59,6 +59,14 @@ export function getReviewFilePath(cycleName) {
   return join(getVaultPath(), 'Reviews', `${cycleName}.md`);
 }
 
+export function getReviewFinalFilePath(cycleName) {
+  return join(getVaultPath(), 'Reviews', `${cycleName}-final.md`);
+}
+
+export function getReviewManagerFilePath(cycleName) {
+  return join(getVaultPath(), 'Reviews', `${cycleName}-manager.md`);
+}
+
 export function getTicketFilePath(ticketId) {
   return join(getVaultPath(), 'Tickets', `${ticketId}.md`);
 }
