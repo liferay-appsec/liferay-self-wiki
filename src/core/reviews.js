@@ -537,7 +537,53 @@ export async function selfReviewOrchestrator(opts = {}) {
   }
 
   process.stderr.write(`synthesizing self-review for ${window.cycleName}…\n`);
-  const body = await claudeHeadless(prompt);
+  const rawBody = await claudeHeadless(prompt);
+
+  // --- RCTX-02/03 deterministic post-synthesis splice (D-04/D-06/D-07/D-08) ---
+  // Rebuild the in-cycle corpus string from the already-loaded arrays (no re-read).
+  const corpusBlock = [
+    'MONTHLIES:',
+    monthlies.length > 0 ? monthlies.map((m) => `## --- ${m.monthStr} ---\n\n${m.raw.trim()}`).join('\n\n') : '(none)',
+    '',
+    'WEEKLIES:',
+    weeklies.length > 0 ? weeklies.map((w) => `## --- ${w.weekStr} ---\n\n${w.raw.trim()}`).join('\n\n') : '(none)',
+    '',
+    'TOPIC_PAGES:',
+    topicPages.length > 0 ? topicPages.map((t) => `## --- ${t.slug} ---\n\n${t.raw.trim()}`).join('\n\n') : '(none)',
+  ].join('\n');
+  const hasEvidence = monthlies.length > 0 || weeklies.length > 0 || topicPages.length > 0;
+
+  // D-06: probe date = window.end (the drafted cycle's end). The walk-back's
+  // completed-cycle guard (`previous.end >= periodDateStr` breaks) therefore never
+  // surfaces the drafted cycle itself — only strictly-earlier completed cycles.
+  const feedbackResult = await buildProgressFeedbackBlock(window.end, cfg, {
+    corpusLabel: `${window.cycleName} in-cycle corpus`,
+    corpusBlock,
+    hasEvidence,
+    blockHeading: '## Progress on prior-cycle feedback',
+  });
+
+  // D-03: inject the block before ## 1. (no-op when feedbackResult is null — D-08).
+  let body = insertProgressBlock(rawBody, feedbackResult?.block);
+
+  // D-07: cite exactly the prior files actually fed. Strip the vault prefix to a
+  // vault-relative path. priorReview.kind autoFinal|manual were the only kinds that
+  // contribute a *full prior body*; autoQ3 (generated-draft Q3) is NOT cited as a
+  // prior review source per D-07 (it is our own output, already covered by the
+  // model's normal source attribution). The manager file is cited only when a
+  // feedback block was actually rendered.
+  const priorCitations = [];
+  const vaultPrefix = getVaultPath() + sep;
+  if (priorReview && (priorReview.kind === 'autoFinal' || priorReview.kind === 'manual') && priorReview.path) {
+    priorCitations.push(priorReview.path.startsWith(vaultPrefix) ? priorReview.path.slice(vaultPrefix.length) : priorReview.path);
+  }
+  if (feedbackResult?.cycleName) {
+    const mgrPath = getReviewManagerFilePath(feedbackResult.cycleName);
+    priorCitations.push(mgrPath.startsWith(vaultPrefix) ? mgrPath.slice(vaultPrefix.length) : mgrPath);
+  }
+  body = appendPriorReviewSources(body, priorCitations);
+  // --- end RCTX-02/03 splice ---
+
   const today = todayISO();
 
   // Atomic O_EXCL write. The early refuse-without-force check is a UX
