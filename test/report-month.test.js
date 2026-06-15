@@ -4,9 +4,34 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, unlinkSync, 
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { spawnSync } from 'child_process';
+import { setVaultPath } from '../src/utils/paths.js';
+import { buildProgressFeedbackBlock } from '../src/core/feedback-progress.js';
 
 let tmp, vault;
 const CLI_ENTRY = new URL('../src/cli.js', import.meta.url).pathname;
+
+// Sentinel constants matching review-capture.js
+const FEEDBACK_START = '<!-- feedback-items:start -->';
+const FEEDBACK_END = '<!-- feedback-items:end -->';
+
+function managerReviewBodyMonthly(cycleName, items) {
+  const bullets = items.map(({ id, text }) => `- **${id}**: ${text}`).join('\n');
+  return [
+    `# Manager Review — ${cycleName}`,
+    '',
+    'Review prose here.',
+    '',
+    FEEDBACK_START,
+    '## Feedback Items',
+    '',
+    bullets,
+    '',
+    FEEDBACK_END,
+    '',
+  ].join('\n');
+}
+
+const MONTHLY_CFG = { review: { cycleEndMonths: [5, 9, 12] } };
 
 function todayUTC() {
   const d = new Date();
@@ -27,6 +52,7 @@ before(async () => {
   mkdirSync(join(vault, 'Reports'), { recursive: true });
   mkdirSync(join(vault, 'Tickets'), { recursive: true });
   mkdirSync(join(vault, 'Components'), { recursive: true });
+  mkdirSync(join(vault, 'Reviews'), { recursive: true });
   mkdirSync(join(vault, '.self-wiki'), { recursive: true });
 
   mkdirSync(join(tmp, 'cfg', 'self-wiki'), { recursive: true });
@@ -38,9 +64,14 @@ before(async () => {
 
   writeFileSync(
     join(vault, '.self-wiki', 'config.json'),
-    JSON.stringify({ components: [{ slug: 'wiki', keywords: ['wiki'] }] }, null, 2),
+    JSON.stringify({
+      components: [{ slug: 'wiki', keywords: ['wiki'] }],
+      review: { cycleEndMonths: [5, 9, 12] },
+    }, null, 2),
     'utf8',
   );
+
+  setVaultPath(vault);
 
   writeFileSync(
     join(vault, 'Daily', '2026-04-01.md'),
@@ -229,5 +260,57 @@ test('Backfill source contains the empty-week graceful-skip guard (MONTH-04)', (
   assert.match(src, /hasAnyDaily/);
   assert.match(src, /if \(!hasAnyDaily\) continue/);
   assert.match(src, /hasClaudeCli/);
+});
+
+// ─── Progress vs. review feedback: monthly present/absent (RRPT-02, RRPT-04) ──
+
+test('monthly block present when completed-cycle manager review with items exists (RRPT-02)', async () => {
+  // 2026-06-30 is the last day of June, which is in 2026-cycle2 (May–Aug).
+  // Previous completed cycle = 2026-cycle1 (end 2026-04-30 < 2026-06-30 ✓).
+  writeFileSync(
+    join(vault, 'Reviews', '2026-cycle1-manager.md'),
+    managerReviewBodyMonthly('2026-cycle1', [
+      { id: 'FB-1', text: 'Be more concise in PR descriptions' },
+      { id: 'FB-2', text: 'Pair more on migrations' },
+    ]),
+    'utf8',
+  );
+
+  // Strip PATH so synthesize degrades gracefully — block still renders with fallback
+  const savedPath = process.env.PATH;
+  process.env.PATH = '/nonexistent';
+  try {
+    const r = await buildProgressFeedbackBlock(
+      '2026-06-30',
+      MONTHLY_CFG,
+      { corpusLabel: 'month', corpusBlock: '## --- 2026-W25 ---\n\n(weekly)' },
+    );
+    assert.ok(r !== null, 'block should be present when a completed cycle has items');
+    assert.equal(r.cycleName, '2026-cycle1');
+    assert.ok(r.block.includes('## Progress vs. review feedback'), `block heading missing: ${r.block.slice(0, 80)}`);
+    assert.ok(r.block.includes('- **FB-1**: Be more concise in PR descriptions'), 'verbatim FB-1 line missing');
+    assert.ok(r.block.includes('- **FB-2**: Pair more on migrations'), 'verbatim FB-2 line missing');
+    // Soft-degrade with no claude → all fallback assessments
+    assert.ok(r.block.includes('No activity noted this period.'));
+  } finally {
+    process.env.PATH = savedPath;
+  }
+});
+
+test('monthly block absent when no manager review exists (RRPT-04)', async () => {
+  // 2021-09-30 is in 2021-cycle3. No manager files exist for any prior 2021 cycle in this vault.
+  const r = await buildProgressFeedbackBlock(
+    '2021-09-30',
+    MONTHLY_CFG,
+    { corpusLabel: 'month', corpusBlock: '## --- 2021-W39 ---\n\n(weekly)' },
+  );
+  assert.equal(r, null, 'block should be null when no completed cycle has a manager review');
+});
+
+// ─── Source-grep guardrail (RRPT-02 wiring proof) ────────────────────────────
+
+test('report.js source contains corpusLabel: month (monthly orchestrator wiring guardrail)', () => {
+  const src = readFileSync(new URL('../src/commands/report.js', import.meta.url).pathname, 'utf8');
+  assert.match(src, /corpusLabel: 'month'/, "report.js must pass corpusLabel: 'month' to buildProgressFeedbackBlock");
 });
 
