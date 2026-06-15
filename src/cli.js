@@ -22,6 +22,7 @@ import { configCommand } from './commands/config.js';
 import { nudgeCommand } from './commands/nudge.js';
 import { closeOrphansCommand } from './commands/close-orphans.js';
 import { selfReviewCommand } from './commands/self-review.js';
+import { reviewCommand } from './commands/review.js';
 
 const program = new Command();
 
@@ -146,6 +147,7 @@ program
   .action(closeOrphansCommand);
 
 program.addCommand(configCommand());
+program.addCommand(reviewCommand());
 
 program.parseAsync().catch((err) => {
   process.stderr.write(`error: ${err.message}\n`);
