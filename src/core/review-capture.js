@@ -13,17 +13,44 @@ function todayISO(now = new Date()) {
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`;
 }
 
+// Sentinel comments delimit the authoritative, code-written Feedback Items
+// section inside <cycle>-manager.md (logger/topics sentinel discipline).
+const FEEDBACK_START = '<!-- feedback-items:start -->';
+const FEEDBACK_END = '<!-- feedback-items:end -->';
+
 export function parseFeedbackItems(body) {
-  const lines = typeof body === 'string' ? body.split('\n') : [];
-  let startIdx = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (/^## Feedback Items\b/.test(lines[i])) { startIdx = i; break; }
+  const text = typeof body === 'string' ? body : '';
+  // Bind to the LAST start sentinel: the verbatim manager review is written
+  // ABOVE this section, so review prose that happens to contain a "## Feedback
+  // Items" heading or "- **FB-N**:" bullets can never spoof the code-counted
+  // total. parseFeedbackItems is the deterministic counter — it must not be
+  // steerable by untrusted input (CR-01).
+  let region;
+  const startPos = text.lastIndexOf(FEEDBACK_START);
+  if (startPos !== -1) {
+    const after = text.slice(startPos + FEEDBACK_START.length);
+    const endPos = after.indexOf(FEEDBACK_END);
+    region = endPos === -1 ? after : after.slice(0, endPos);
+  } else {
+    // Fallback for a hand-edited file whose sentinels were removed: bind to the
+    // LAST "## Feedback Items" heading (the writer always emits it last), then
+    // stop at the next heading.
+    const lines = text.split('\n');
+    let startIdx = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (/^## Feedback Items\b/.test(lines[i])) startIdx = i;
+    }
+    if (startIdx === -1) return [];
+    const collected = [];
+    for (let i = startIdx + 1; i < lines.length; i++) {
+      if (/^## /.test(lines[i])) break;
+      collected.push(lines[i]);
+    }
+    region = collected.join('\n');
   }
-  if (startIdx === -1) return [];
   const items = [];
-  for (let i = startIdx + 1; i < lines.length; i++) {
-    if (/^## /.test(lines[i])) break;
-    const m = lines[i].match(/^- \*\*(FB-\d+)\*\*: (.+)$/);
+  for (const line of region.split('\n')) {
+    const m = line.match(/^- \*\*(FB-\d+)\*\*: (.+)$/);
     if (m) items.push({ id: m[1], text: m[2].trim() });
   }
   return items;
@@ -80,7 +107,7 @@ export async function recordFinalReview(opts) {
 async function extractFeedbackPoints(text) {
   try {
     const promptHeader = await readFile(FEEDBACK_PROMPT_PATH, 'utf8');
-    const prompt = `${promptHeader}\n${text}\n`;
+    const prompt = `${promptHeader}\n${text}\n--- END MANAGER REVIEW ---\n`;
     const out = await claudeHeadless(prompt);
     return out
       .split('\n')
@@ -100,12 +127,13 @@ function buildFeedbackSection(points, meta) {
     : meta.reason === 'no-claude'
       ? '_AI extraction unavailable (claude CLI not found). Add items below as `- **FB-N**: ...` bullets; editing here is the confirmation._'
       : '_AI-extracted from the manager review above; verbatim-faithful and editable. Editing this list in place IS the confirmation — re-run `review record --manager --force` to re-extract (overwrites edits)._';
-  const lines = [`## Feedback Items`, '', note, ''];
+  const lines = [FEEDBACK_START, `## Feedback Items`, '', note, ''];
   if (points.length === 0) {
     lines.push('<!-- no items: edit this section to add - **FB-1**: ... bullets -->');
   } else {
     points.forEach((p, i) => lines.push(`- **FB-${i + 1}**: ${p}`));
   }
+  lines.push('', FEEDBACK_END);
   return lines.join('\n');
 }
 

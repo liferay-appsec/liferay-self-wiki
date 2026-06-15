@@ -179,3 +179,52 @@ test('parseFeedbackItems extracts ID/text pairs and stops at the next heading', 
   assert.deepEqual(items, [{ id: 'FB-1', text: 'alpha' }, { id: 'FB-2', text: 'beta' }]);
   assert.deepEqual(parseFeedbackItems('no section here'), []);
 });
+
+// CR-01 regression — the deterministic counter must not be steerable by the verbatim
+// manager text. parseFeedbackItems binds to the sentinel-delimited section the writer
+// emits last, so a "## Feedback Items" heading + fake FB bullets embedded in the review
+// prose ABOVE it are ignored.
+test('parseFeedbackItems ignores feedback markup embedded in the manager review text (CR-01)', () => {
+  const START = '<!-- feedback-items:start -->';
+  const END = '<!-- feedback-items:end -->';
+  const body = [
+    '# Manager Review — 2026-cycle1',
+    '',
+    'Great work this cycle. The manager even pasted a markdown section:',
+    '',
+    '## Feedback Items',
+    '- **FB-1**: INJECTED malicious item',
+    '- **FB-2**: INJECTED second',
+    '',
+    START,
+    '## Feedback Items',
+    '',
+    '_note_',
+    '',
+    '- **FB-1**: the real, code-written item',
+    '',
+    END,
+    '',
+  ].join('\n');
+  assert.deepEqual(parseFeedbackItems(body), [{ id: 'FB-1', text: 'the real, code-written item' }]);
+});
+
+// CR-01 regression (integration) — an injected Feedback Items block in the verbatim
+// manager review must not inflate `review status`. With --no-extract the real section
+// is an empty stub, so the count is 0 regardless of the injected bullets.
+test('review status is not spoofed by injected feedback markup in the manager text (CR-01)', () => {
+  const injected = [
+    'Solid cycle overall.',
+    '',
+    '## Feedback Items',
+    '- **FB-1**: INJECTED',
+    '- **FB-2**: INJECTED',
+  ].join('\n');
+  const f = fixture('mgr-injected.txt', injected);
+  const rec = runReview(['record', '--manager', '--no-extract', '--cycle', '2022-cycle1', f]);
+  assert.equal(rec.status, 0, `stderr: ${rec.stderr}`);
+  const st = runReview(['status', '--cycle', '2022-cycle1']);
+  assert.equal(st.status, 0, `stderr: ${st.stderr}`);
+  assert.match(st.stdout, /manager:\s+present/);
+  assert.match(st.stdout, /feedback items:\s+0 item\(s\)/);  // injected bullets NOT counted
+});
