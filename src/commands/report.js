@@ -6,6 +6,7 @@ import { buildMetrics } from '../core/metrics.js';
 import { isoWeek, datesInWeek, priorIsoWeek, datesInMonth, priorMonth, weeksInMonth } from '../utils/format.js';
 import { getDailyFilePath, getReportFilePath, getVaultPath, ensureParentDir } from '../utils/paths.js';
 import { claudeHeadless, hasClaudeCli } from '../core/claude.js';
+import { buildProgressFeedbackBlock } from '../core/feedback-progress.js';
 import { escapeRegex } from '../utils/regex.js';
 
 function isWeekday(dateStr) {
@@ -30,6 +31,19 @@ function resolveOutPath(rawOut, defaultPath) {
     process.stderr.write(`warn: --out path is outside the vault: ${resolved}\n`);
   }
   return resolved;
+}
+
+// Inserts the code-rendered Progress block immediately before the first H2
+// section of the synthesized body, so it lands after the H1 title + Sources
+// line and before `## Theme...`. Falls back to appending if no H2 is found.
+function insertProgressBlock(body, block) {
+  if (!block) return body;
+  const lines = body.split('\n');
+  const idx = lines.findIndex((l) => /^## /.test(l));
+  if (idx === -1) return `${body.trimEnd()}\n\n${block}\n`;
+  const head = lines.slice(0, idx).join('\n').trimEnd();
+  const rest = lines.slice(idx).join('\n');
+  return `${head}\n\n${block}\n\n${rest}`;
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -92,6 +106,11 @@ async function reportWeekOrchestrator(opts) {
   }
 
   const metrics = await buildMetrics(present, { shape: 'week' });
+  const cfg = await readVaultConfig();
+  const corpusBlock = dailies.map((d) => `## --- ${d.dateStr} ---\n\n${d.raw.trim()}`).join('\n\n');
+  const progress = (opts.dryRun || internal)
+    ? null
+    : await buildProgressFeedbackBlock(dates.at(-1), cfg, { corpusLabel: 'week', corpusBlock });
   const priorReport = await loadPriorReport(week);
   const prompt = await buildPrompt({ week, metrics, dailies, present, missing, priorReport });
 
@@ -107,10 +126,11 @@ async function reportWeekOrchestrator(opts) {
 
   process.stderr.write(`${internal ? 'backfilling' : 'synthesizing'} ${week}…\n`);
   const body = await claudeHeadless(prompt);
+  const finalBody = insertProgressBlock(body, progress?.block);
 
   const outPath = resolveOutPath(opts.out, getReportFilePath(week));
   await ensureParentDir(outPath);
-  await writeFile(outPath, body.endsWith('\n') ? body : body + '\n', 'utf8');
+  await writeFile(outPath, finalBody.endsWith('\n') ? finalBody : finalBody + '\n', 'utf8');
   if (!internal) {
     process.stdout.write(`wrote ${outPath}\n`);
   }
@@ -311,6 +331,17 @@ export async function reportMonthOrchestrator(opts) {
     ? `Partial month — generated ${today} (today is in the in-progress window).`
     : null;
 
+  const weekliesCorpus = presentWeeks.length > 0
+    ? presentWeeks.map((w) => `## --- ${w.weekStr} ---\n\n${w.raw.trim()}`).join('\n\n')
+    : '(no weekly reports for this month)';
+  const topicCorpus = topicPages.length > 0
+    ? topicPages.map((t) => `## --- ${t.slug} ---\n\n${t.raw.trim()}`).join('\n\n')
+    : '(no in-month topic pages)';
+  const monthCorpusBlock = [weekliesCorpus, topicCorpus].join('\n\n');
+  const progress = (opts.dryRun || internal)
+    ? null
+    : await buildProgressFeedbackBlock(lastDayOfMonth, cfg, { corpusLabel: 'month', corpusBlock: monthCorpusBlock });
+
   const prompt = await buildMonthlyPrompt({
     month,
     metrics,
@@ -336,6 +367,7 @@ export async function reportMonthOrchestrator(opts) {
 
   process.stderr.write(`${internal ? 'backfilling' : 'synthesizing'} ${month}…\n`);
   const body = await claudeHeadless(prompt);
+  const withProgress = insertProgressBlock(body, progress?.block);
 
   const outPath = resolveOutPath(opts.out, getReportFilePath(month));
   await ensureParentDir(outPath);
@@ -346,9 +378,9 @@ export async function reportMonthOrchestrator(opts) {
     exists = true;
   } catch { /* fresh write */ }
 
-  let finalBody = body;
+  let finalBody = withProgress;
   if (exists) {
-    finalBody = `<!-- regenerated ${today} -->\n\n${body}`;
+    finalBody = `<!-- regenerated ${today} -->\n\n${withProgress}`;
   }
   if (!finalBody.endsWith('\n')) finalBody += '\n';
 
