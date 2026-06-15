@@ -8,6 +8,7 @@ import {
   existsSync,
   readFileSync,
   unlinkSync,
+  chmodSync,
 } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -417,4 +418,203 @@ test('--out flag overrides default Reviews/<cycle>.md path (mirrors monthly --ou
   const r = runCli(['--cycle', '2026-cycle1', '--out', customOut, '--dry-run']);
   assert.equal(r.status, 0, `stderr: ${r.stderr}`);
   assert.match(r.stderr, /--out path is outside the vault/);
+});
+
+// ─── RCTX-02/03 written-draft tests (Plan 10-03) ────────────────────────────
+
+const FEEDBACK_START = '<!-- feedback-items:start -->';
+const FEEDBACK_END = '<!-- feedback-items:end -->';
+
+function managerReviewBody(cycleName, items) {
+  const bullets = items.map(({ id, text }) => `- **${id}**: ${text}`).join('\n');
+  return [
+    `# Manager Review — ${cycleName}`,
+    '',
+    'Review prose here.',
+    '',
+    FEEDBACK_START,
+    '## Feedback Items',
+    '',
+    bullets,
+    '',
+    FEEDBACK_END,
+    '',
+  ].join('\n');
+}
+
+/**
+ * Create a tmp bin/ directory with a `claude` stub that echoes a fixed body.
+ * The stub is used in place of the real claude CLI for hermetic synthesis tests.
+ * Returns the bin directory path; prepend it to PATH in the spawned child env.
+ */
+function withStubbedClaude(bodyMarkdown) {
+  const binDir = mkdtempSync(join(tmpdir(), 'self-wiki-claude-stub-'));
+  const stub = join(binDir, 'claude');
+  // The stub ignores its prompt arg and prints a fixed body to stdout.
+  writeFileSync(
+    stub,
+    `#!/bin/sh\ncat <<'SELFREVIEW_EOF'\n${bodyMarkdown}\nSELFREVIEW_EOF\n`,
+    'utf8',
+  );
+  chmodSync(stub, 0o755);
+  return binDir;
+}
+
+// Fixed stub body: contains ## 1. (placement anchor) and ## Sources (citation anchor).
+const STUB_BODY =
+  '# Self-Review — 2026-cycle1 (2026-01-01 → 2026-04-30)\n\n' +
+  'Sources: `Reports/2026-02.md`\n\n' +
+  '## 1. What have you accomplished\n- did things\n\n' +
+  '## Sources\n### Monthly reports\n- `Reports/2026-02.md`\n';
+
+test('feedback block present with verbatim FB-N before ## 1. when manager review exists (RCTX-02)', () => {
+  const reviewPath = join(vault, 'Reviews', '2026-cycle1.md');
+  const managerPath = join(vault, 'Reviews', '2025-cycle3-manager.md');
+  try { unlinkSync(reviewPath); } catch {}
+  try { unlinkSync(join(vault, 'Reviews', '2025-cycle3-final.md')); } catch {}
+
+  writeFileSync(
+    managerPath,
+    managerReviewBody('2025-cycle3', [
+      { id: 'FB-1', text: 'Be more proactive in code reviews' },
+      { id: 'FB-2', text: 'Document architecture decisions' },
+    ]),
+    'utf8',
+  );
+
+  const binDir = withStubbedClaude(STUB_BODY);
+  try {
+    const r = spawnSync(process.execPath, [CLI_ENTRY, 'self-review', '--cycle', '2026-cycle1'], {
+      env: {
+        ...process.env,
+        PATH: binDir + ':' + process.env.PATH,
+        XDG_DATA_HOME: process.env.XDG_DATA_HOME,
+        XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+      },
+      encoding: 'utf8',
+    });
+    assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+
+    const written = readFileSync(reviewPath, 'utf8');
+    assert.ok(written.includes('## Progress on prior-cycle feedback'), 'block heading present');
+    assert.ok(written.includes('- **FB-1**: Be more proactive in code reviews'), 'verbatim FB-1 line present');
+    assert.ok(written.includes('- **FB-2**: Document architecture decisions'), 'verbatim FB-2 line present');
+    assert.ok(
+      written.indexOf('## Progress on prior-cycle feedback') < written.indexOf('## 1.'),
+      'block must appear before ## 1.',
+    );
+    assert.ok(
+      !written.includes('## Progress vs. review feedback'),
+      'must NOT include the report-side heading',
+    );
+  } finally {
+    try { unlinkSync(reviewPath); } catch {}
+    try { unlinkSync(managerPath); } catch {}
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
+test('## Sources cites prior final + manager when both fed (RCTX-03)', () => {
+  const reviewPath = join(vault, 'Reviews', '2026-cycle1.md');
+  const managerPath = join(vault, 'Reviews', '2025-cycle3-manager.md');
+  const finalPath = join(vault, 'Reviews', '2025-cycle3-final.md');
+  try { unlinkSync(reviewPath); } catch {}
+
+  writeFileSync(
+    managerPath,
+    managerReviewBody('2025-cycle3', [{ id: 'FB-1', text: 'Be more proactive in code reviews' }]),
+    'utf8',
+  );
+  writeFileSync(
+    finalPath,
+    '# Self-Review — 2025-cycle3 (submitted final)\n\n## 3. Growth\n- prior final focus item\n',
+    'utf8',
+  );
+
+  const binDir = withStubbedClaude(STUB_BODY);
+  try {
+    const r = spawnSync(process.execPath, [CLI_ENTRY, 'self-review', '--cycle', '2026-cycle1'], {
+      env: {
+        ...process.env,
+        PATH: binDir + ':' + process.env.PATH,
+        XDG_DATA_HOME: process.env.XDG_DATA_HOME,
+        XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+      },
+      encoding: 'utf8',
+    });
+    assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+
+    const written = readFileSync(reviewPath, 'utf8');
+    assert.ok(written.includes('### Prior review'), '### Prior review group present');
+    assert.ok(written.includes('`Reviews/2025-cycle3-final.md`'), 'final cited in Sources');
+    assert.ok(written.includes('`Reviews/2025-cycle3-manager.md`'), 'manager cited in Sources');
+    assert.ok(
+      written.indexOf('## Sources') < written.indexOf('### Prior review'),
+      '### Prior review appears after ## Sources',
+    );
+  } finally {
+    try { unlinkSync(reviewPath); } catch {}
+    try { unlinkSync(managerPath); } catch {}
+    try { unlinkSync(finalPath); } catch {}
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
+test('feedback block + Prior review group absent when no manager review exists (D-08)', () => {
+  const reviewPath = join(vault, 'Reviews', '2026-cycle1.md');
+  try { unlinkSync(reviewPath); } catch {}
+  try { unlinkSync(join(vault, 'Reviews', '2025-cycle3-manager.md')); } catch {}
+  try { unlinkSync(join(vault, 'Reviews', '2025-cycle3-final.md')); } catch {}
+
+  const binDir = withStubbedClaude(STUB_BODY);
+  try {
+    const r = spawnSync(process.execPath, [CLI_ENTRY, 'self-review', '--cycle', '2026-cycle1'], {
+      env: {
+        ...process.env,
+        PATH: binDir + ':' + process.env.PATH,
+        XDG_DATA_HOME: process.env.XDG_DATA_HOME,
+        XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+      },
+      encoding: 'utf8',
+    });
+    assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+
+    const written = readFileSync(reviewPath, 'utf8');
+    assert.ok(!written.includes('## Progress on prior-cycle feedback'), 'block must be absent');
+    assert.ok(!written.includes('### Prior review'), '### Prior review must be absent');
+  } finally {
+    try { unlinkSync(reviewPath); } catch {}
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
+test('no-claude soft-degrade: prompt still prints, command exits 0, draft not written (D-08)', () => {
+  const reviewPath = join(vault, 'Reviews', '2026-cycle1.md');
+  const managerPath = join(vault, 'Reviews', '2025-cycle3-manager.md');
+  try { unlinkSync(reviewPath); } catch {}
+
+  // Write a manager review to verify its presence doesn't break the no-claude path.
+  writeFileSync(
+    managerPath,
+    managerReviewBody('2025-cycle3', [{ id: 'FB-1', text: 'Be more proactive in code reviews' }]),
+    'utf8',
+  );
+
+  try {
+    const r = spawnSync(process.execPath, [CLI_ENTRY, 'self-review', '--cycle', '2026-cycle1'], {
+      env: {
+        ...process.env,
+        PATH: '/nonexistent',
+        XDG_DATA_HOME: process.env.XDG_DATA_HOME,
+        XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+      },
+      encoding: 'utf8',
+    });
+    assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+    assert.match(r.stderr, /claude.* CLI not found on PATH/);
+    // Hoisted hasClaudeCli gate: prints the prompt and returns WITHOUT writing.
+    assert.equal(existsSync(reviewPath), false, 'draft must NOT be written in no-claude path');
+  } finally {
+    try { unlinkSync(managerPath); } catch {}
+  }
 });
