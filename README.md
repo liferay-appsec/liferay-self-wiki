@@ -88,6 +88,34 @@ At the end of a Liferay review cycle, `self-wiki self-review` drafts the three L
 
 [→ Full example: docs/examples/self-review.md](docs/examples/self-review.md)
 
+### Review capture
+
+After a cycle closes, capture the two external artifacts that logs can't reproduce — your **final submitted self-review** and your **manager's review** — so the next cycle's report and draft can build on them. These are stored as sibling files next to the generated draft:
+
+```
+Reviews/YYYY-cycleN.md           ← generated draft (self-wiki self-review)
+Reviews/YYYY-cycleN-final.md     ← your final submitted text (review record --self)
+Reviews/YYYY-cycleN-manager.md   ← manager review + extracted Feedback Items (review record --manager)
+```
+
+```sh
+# Record the final text you actually submitted (file or stdin):
+self-wiki review record --self final-review.md
+pbpaste | self-wiki review record --self -
+
+# Record your manager's review; self-wiki extracts discrete, ID'd feedback items:
+self-wiki review record --manager manager-review.md
+
+# See what's captured for a cycle:
+self-wiki review status
+```
+
+`review record --manager` runs `claude -p` to extract a `## Feedback Items` list (`- **FB-1**: …`) from the review text — verbatim-faithful, no invention. **Editing that list in place is the confirmation** — fix or remove items and they stay put. Re-running with `--force` re-extracts (overwriting your edits); without `--force` it refuses to overwrite, so edits are safe by default. Pass `--no-extract` (or run without `claude` on PATH) to get an empty stub to fill in manually. Target a specific cycle with `--cycle YYYY-cycleN` (default: the most-recently-completed cycle).
+
+`review status` prints which of {generated draft, final, manager, feedback items} exist for the cycle and exits cleanly when nothing has been captured yet.
+
+These reviews stay in the vault; nothing is sent anywhere except the user's own opt-in `claude -p` extraction call.
+
 ## What gets logged in your vault
 
 self-wiki only ever writes into the vault directory you chose at `init` time. Here's exactly what lands in it.
