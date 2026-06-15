@@ -71,6 +71,10 @@ The week's centre of gravity was the OAuth provider refactor (`EXAMPLE-001`). Th
 
 A themed synthesis at `Reports/<YYYY-MM>.md`, consumed by `self-wiki self-review` as the primary input for the cycle draft. See [→ Full example: docs/examples/monthly-report.md](docs/examples/monthly-report.md).
 
+### Progress vs. review feedback
+
+When a manager review with feedback items has been captured for a recently completed cycle (via `self-wiki review record --manager`), both `self-wiki report --week` and `self-wiki report --month` prepend a `## Progress vs. review feedback` block at the top of the report. Each captured feedback item is listed by its ID and verbatim text — read directly from `Reviews/<cycle>-manager.md`, never paraphrased — followed by a model-synthesized one-line assessment of that period's progress on it; when the period shows no related work, the assessment is an honest `No activity noted this period.`. The block tracks the prior cycle's feedback throughout the following cycle, keeping the manager-feedback loop visible in every weekly and monthly synthesis. When no completed cycle has a captured manager review, the block is silently omitted — no empty section, no error. This block is distinct from the `## Review feedback addressed` section (which covers PR code-review responses); both can appear in the same report.
+
 ### Self-review draft
 
 At the end of a Liferay review cycle, `self-wiki self-review` drafts the three Liferay-form-shaped sections from the in-cycle monthlies, weeklies, and topic pages — paste-ready, with every accomplishment tagged against the five Liferay values and a `## Sources` provenance footer.
