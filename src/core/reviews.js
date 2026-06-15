@@ -5,7 +5,8 @@ import { resolveCycle } from './cycles.js';
 import { readVaultConfig, writeVaultConfig } from './config.js';
 import { hasClaudeCli, claudeHeadless } from './claude.js';
 import { reportMonthOrchestrator } from '../commands/report.js';
-import { getReviewFilePath, getReviewFinalFilePath, getReportFilePath, getVaultPath, ensureParentDir } from '../utils/paths.js';
+import { getReviewFilePath, getReviewFinalFilePath, getReviewManagerFilePath, getReportFilePath, getVaultPath, ensureParentDir } from '../utils/paths.js';
+import { buildProgressFeedbackBlock } from './feedback-progress.js';
 import { monthsInRange, weeksInMonth, datesInMonth } from '../utils/format.js';
 import { escapeRegex } from '../utils/regex.js';
 
@@ -300,6 +301,30 @@ function datesInRange(startISO, endISO) {
     }
   }
   return all;
+}
+
+// Inserts the code-rendered Progress block before the first H2 (## 1.) of the
+// synthesized self-review body, so it lands after the H1 + Sources line. Same
+// splice as report.js (D-03). No-op when block is null (soft-degrade).
+function insertProgressBlock(body, block) {
+  if (!block) return body;
+  const lines = body.split('\n');
+  const idx = lines.findIndex((l) => /^## /.test(l));
+  if (idx === -1) return `${body.trimEnd()}\n\n${block}\n`;
+  const head = lines.slice(0, idx).join('\n').trimEnd();
+  const rest = lines.slice(idx).join('\n');
+  return `${head}\n\n${block}\n\n${rest}`;
+}
+
+// Deterministic RCTX-03 citation append. `citations` is an array of
+// vault-relative paths (e.g. 'Reviews/2025-cycle3-final.md') the orchestrator
+// actually fed to the prompt. No-op when there are no citations OR the model
+// omitted ## Sources (soft-degrade — never fabricate the footer).
+function appendPriorReviewSources(body, citations) {
+  if (!citations || citations.length === 0) return body;
+  if (!/^## Sources\b/m.test(body)) return body;
+  const group = `### Prior review\n${citations.map((c) => `- \`${c}\``).join('\n')}\n`;
+  return `${body.trimEnd()}\n\n${group}`;
 }
 
 export async function selfReviewOrchestrator(opts = {}) {
