@@ -94,6 +94,12 @@ At the end of a Liferay review cycle, `self-wiki self-review` drafts the three L
 
 [→ Full example: docs/examples/self-review.md](docs/examples/self-review.md)
 
+**Prior-cycle grounding.** When `Reviews/<prior>-final.md` has been captured (via `review record --self`), the next `self-wiki self-review` feeds that submitted text in full as continuity input — so the draft echoes what was actually written rather than re-deriving from logs alone. A manual `--prior-review <path>` overrides it; the growth-focus section (Q3) from `Reviews/<prior>.md` remains the fallback when no final has been captured.
+
+When `Reviews/<prior>-manager.md` has feedback items, the draft gains a `## Progress on prior-cycle feedback` section at the top — each item is listed by ID and verbatim text (read directly from the file, never paraphrased), followed by a one-line assessment synthesized from the whole in-cycle corpus (monthlies + weeklies + topic pages). This section is **distinct from** the report-side `## Progress vs. review feedback` block (Phase 9): same FB-N source, different artifact. The draft block is supplementary working content for the engineer drafting the review — do not paste it into the form as a fourth answer.
+
+The draft's `## Sources` footer cites the prior final review and manager review under a `### Prior review` group whenever they informed the synthesis. When no captured prior artifacts exist, the block and citation are silently omitted. When a feedback item shows no in-cycle evidence, its assessment is an honest `No activity noted this period.` — the same deterministic fallback applies if assessment synthesis is unavailable. The command never fails for a missing prior artifact.
+
 ### Review capture
 
 After a cycle closes, capture the two external artifacts that logs can't reproduce — your **final submitted self-review** and your **manager's review** — so the next cycle's report and draft can build on them. These are stored as sibling files next to the generated draft:
