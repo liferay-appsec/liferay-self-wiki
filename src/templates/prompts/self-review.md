@@ -15,6 +15,7 @@ The synthesis is constrained to evidence in `MONTHLIES`, `WEEKLIES`, `TOPIC_PAGE
 - `TOPIC_PAGES` (ticket/component ground truth): ticket and component pages whose content was touched in-cycle, separated by `## --- <slug> ---`. Use these to anchor specific tickets and decisions; topic pages are append-only and reflect what actually shipped.
 - `PRIOR_GROWTH_FOCUS` (when present, auto-detected): the Q3 section of the immediately prior cycle's review. Use it to call out follow-through on the prior-cycle growth focus where the current cycle's evidence supports it.
 - `PRIOR_REVIEW` (when present, manually supplied via `--prior-review <path>`): the FULL body of a user-supplied prior review. Treat it the same way as `PRIOR_GROWTH_FOCUS` — for continuity, not as the source of new content. Manual override wins on collision: when both are present, treat `PRIOR_REVIEW` as authoritative and ignore `PRIOR_GROWTH_FOCUS`.
+- `PRIOR_REVIEW (<cycle-name>)` (when present, auto-detected from `Reviews/<prior>-final.md`): the FULL body of the prior cycle's *submitted* final review. Treat identically to a manual `PRIOR_REVIEW` — for continuity with what was actually written, not as the source of new content. Precedence: manual `--prior-review` wins over this auto-detected final, which wins over `PRIOR_GROWTH_FOCUS`.
 
 ## Liferay values (use exactly these names; tag accomplishments below)
 
@@ -47,8 +48,8 @@ Produce a single markdown document with these top-level sections, in order:
    - `Tickets/LPD-12345.md`
    - `Components/wiki.md`
 
-   ### Prior review (when used)
-   - `Reviews/2025-cycle3.md` (Q3 only)   OR   `<manual-path>` (full body)
+   ### Prior review
+   *(Emitted by code — do not emit this group yourself. The orchestrator splices the prior-final and manager-review citations into ## Sources deterministically.)*
    ```
    Emit only the type-groups that have entries; suppress empty groups.
 
@@ -64,5 +65,6 @@ Produce a single markdown document with these top-level sections, in order:
 - **Section 2 — Cite the specific monthly / weekly lesson (file + section) each item came from.** No pure speculation.
 - **Section 3 — Synthesize a focus area from RECURRING patterns across multiple monthlies; cite the supporting evidence for each sub-bullet.** No pure speculation. A pattern needs at least two independent mentions.
 - **`PRIOR_REVIEW` overrides `PRIOR_GROWTH_FOCUS`** — when both are present, ignore `PRIOR_GROWTH_FOCUS` entirely.
+- **Do not emit a `## Progress on prior-cycle feedback` section.** A deterministic block (prior-cycle manager-review feedback items + per-item progress assessments) is inserted at the top of your output in code, immediately before `## 1.`. Do not write, duplicate, or reference such a section yourself.
 - **Stay terse.** This is a self-review for a senior engineer's HR form, not a marketing post. Bullets, not paragraphs, where bullets work. Section 3 is the one place prose is preferred.
 - Output **only** the self-review markdown. No preamble, no "here's your draft", no closing remarks, no explanatory commentary.
