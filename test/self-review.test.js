@@ -343,6 +343,72 @@ test('--cycle resolves window without --since', () => {
   assert.match(r.stdout, /CYCLE: 2025-cycle3 \(2025-09-01 → 2025-12-31\)/);
 });
 
+// ─── autoFinal precedence (Plan 10-01 / RCTX-01) ────────────────────────────
+
+test('auto-detects Reviews/<prior>-final.md as PRIOR_REVIEW when present (D-01a)', () => {
+  // Ensure no Q3-only draft is present, write a final instead.
+  try { unlinkSync(join(vault, 'Reviews', '2025-cycle3.md')); } catch {}
+  writeFileSync(
+    join(vault, 'Reviews', '2025-cycle3-final.md'),
+    '# Self-Review — 2025-cycle3 (submitted final)\n\n## 1. Accomplishments\n- did prior cycle work\n\n## 3. Growth\n- prior focus item\n',
+    'utf8',
+  );
+  const r = runCli(['--cycle', '2026-cycle1', '--dry-run']);
+  assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+  assert.match(r.stdout, /PRIOR_REVIEW \(2025-cycle3\):/);
+  assert.match(r.stdout, /did prior cycle work/);
+  // Q3-only PRIOR_GROWTH_FOCUS label must NOT appear when final is present
+  assert.ok(!r.stdout.includes('PRIOR_GROWTH_FOCUS (2025-cycle3):'), 'PRIOR_GROWTH_FOCUS must not appear when final exists');
+});
+
+test('autoFinal wins over Q3 draft when both Reviews/<prior>-final.md and Reviews/<prior>.md exist (D-01a precedence)', () => {
+  // Write both: a draft with Q3 section and a final
+  writeFileSync(
+    join(vault, 'Reviews', '2025-cycle3.md'),
+    '# 2025-cycle3 draft\n\n## 1. Stuff\n- x\n\n## 3. What is your current area of focus\n- Q3 draft content\n\n## Sources\n- file.md\n',
+    'utf8',
+  );
+  writeFileSync(
+    join(vault, 'Reviews', '2025-cycle3-final.md'),
+    '# Self-Review — 2025-cycle3 (submitted final)\n\n## 1. Accomplishments\n- final submitted content\n',
+    'utf8',
+  );
+  const r = runCli(['--cycle', '2026-cycle1', '--dry-run']);
+  assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+  assert.match(r.stdout, /PRIOR_REVIEW \(2025-cycle3\):/);
+  assert.match(r.stdout, /final submitted content/);
+  assert.ok(!r.stdout.includes('Q3 draft content'), 'Q3 draft content must not appear when final wins');
+  // Check cycle-specific PRIOR_GROWTH_FOCUS label (not the template header text)
+  assert.ok(!r.stdout.includes('PRIOR_GROWTH_FOCUS (2025-cycle3):'), 'PRIOR_GROWTH_FOCUS must not appear when final wins');
+});
+
+test('manual --prior-review overrides auto-detected final (D-01a top of chain)', () => {
+  const manualPath = join(tmp, 'manual-prior-override.md');
+  writeFileSync(manualPath, '# Manual override review\n\n## 3. Growth\n- manual override content\n', 'utf8');
+  // final.md is still present from prior test
+  const r = runCli(['--cycle', '2026-cycle1', '--prior-review', manualPath, '--dry-run']);
+  assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+  assert.match(r.stdout, /PRIOR_REVIEW:/);
+  assert.match(r.stdout, /manual override content/);
+  assert.ok(!r.stdout.includes('final submitted content'), 'final body must not appear when manual override wins');
+  assert.ok(!r.stdout.includes('PRIOR_REVIEW (2025-cycle3):'), 'labeled PRIOR_REVIEW must not appear when manual wins');
+});
+
+test('falls back to Q3 PRIOR_GROWTH_FOCUS when no final.md exists but draft Reviews/<prior>.md does (D-01a fallback)', () => {
+  // Remove the final, keep the draft with Q3 section
+  try { unlinkSync(join(vault, 'Reviews', '2025-cycle3-final.md')); } catch {}
+  writeFileSync(
+    join(vault, 'Reviews', '2025-cycle3.md'),
+    '# 2025-cycle3 review\n\n## 1. Stuff\n- x\n\n## 3. What is your current area of focus\n- pairing more\n\n## Sources\n- file.md\n',
+    'utf8',
+  );
+  const r = runCli(['--cycle', '2026-cycle1', '--dry-run']);
+  assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+  assert.match(r.stdout, /PRIOR_GROWTH_FOCUS \(2025-cycle3\):/);
+  assert.match(r.stdout, /pairing more/);
+  assert.ok(!r.stdout.includes('PRIOR_REVIEW (2025-cycle3):'), 'labeled PRIOR_REVIEW must not appear when only Q3 fallback is used');
+});
+
 test('--out flag overrides default Reviews/<cycle>.md path (mirrors monthly --out)', () => {
   const customOut = join(tmp, 'custom-review.md');
   // Use --dry-run so no actual write fires; the helper still resolves the path

@@ -5,7 +5,7 @@ import { resolveCycle } from './cycles.js';
 import { readVaultConfig, writeVaultConfig } from './config.js';
 import { hasClaudeCli, claudeHeadless } from './claude.js';
 import { reportMonthOrchestrator } from '../commands/report.js';
-import { getReviewFilePath, getReportFilePath, getVaultPath, ensureParentDir } from '../utils/paths.js';
+import { getReviewFilePath, getReviewFinalFilePath, getReportFilePath, getVaultPath, ensureParentDir } from '../utils/paths.js';
 import { monthsInRange, weeksInMonth, datesInMonth } from '../utils/format.js';
 import { escapeRegex } from '../utils/regex.js';
 
@@ -133,6 +133,12 @@ export async function loadPriorCycleReview(args) {
   } catch {
     return null;
   }
+  // D-01a: prefer the submitted final's FULL body over the generated draft's Q3.
+  const finalPath = getReviewFinalFilePath(priorName);
+  try {
+    const finalBody = await readFile(finalPath, 'utf8');
+    return { kind: 'autoFinal', path: finalPath, body: finalBody.trim(), priorCycleName: priorName };
+  } catch { /* no final.md — fall through to the Q3 draft fallback */ }
   const path = getReviewFilePath(priorName);
   let body;
   try {
@@ -235,11 +241,13 @@ export async function buildSelfReviewPrompt(args) {
     topicPagesBlock,
   );
 
-  // Manual prior review wins over auto-detected Q3 (loadPriorCycleReview
-  // already enforces this; defended again here).
+  // Manual prior review wins over auto-detected final wins over Q3 (loadPriorCycleReview
+  // already enforces this; defended again here). D-01a precedence chain.
   if (priorReview) {
     if (priorReview.kind === 'manual' && priorReview.body) {
       parts.push('', 'PRIOR_REVIEW:', priorReview.body);
+    } else if (priorReview.kind === 'autoFinal' && priorReview.body) {
+      parts.push('', `PRIOR_REVIEW (${priorReview.priorCycleName}):`, priorReview.body);
     } else if (priorReview.kind === 'autoQ3' && priorReview.body) {
       parts.push('', `PRIOR_GROWTH_FOCUS (${priorReview.priorCycleName}):`, priorReview.body);
     }
