@@ -563,15 +563,12 @@ export async function selfReviewOrchestrator(opts = {}) {
     blockHeading: '## Progress on prior-cycle feedback',
   });
 
-  // D-03: inject the block before ## 1. (no-op when feedbackResult is null — D-08).
-  let body = insertProgressBlock(rawBody, feedbackResult?.block);
-
   // D-07: cite exactly the prior files actually fed. Strip the vault prefix to a
   // vault-relative path. priorReview.kind autoFinal|manual were the only kinds that
   // contribute a *full prior body*; autoQ3 (generated-draft Q3) is NOT cited as a
   // prior review source per D-07 (it is our own output, already covered by the
   // model's normal source attribution). The manager file is cited only when a
-  // feedback block was actually rendered.
+  // feedback block was actually rendered. Computed before the splices (WR-01).
   const priorCitations = [];
   const vaultPrefix = getVaultPath() + sep;
   if (priorReview && (priorReview.kind === 'autoFinal' || priorReview.kind === 'manual') && priorReview.path) {
@@ -581,7 +578,13 @@ export async function selfReviewOrchestrator(opts = {}) {
     const mgrPath = getReviewManagerFilePath(feedbackResult.cycleName);
     priorCitations.push(mgrPath.startsWith(vaultPrefix) ? mgrPath.slice(vaultPrefix.length) : mgrPath);
   }
-  body = appendPriorReviewSources(body, priorCitations);
+
+  // WR-01: append the `### Prior review` group against the model's RAW body first, so
+  // it anchors to `## Sources` independent of the feedback-block insertion (D-07: no-op
+  // when there are no citations or no `## Sources`). THEN inject the block before the
+  // first `## ` (## 1.) — D-03 (no-op when feedbackResult is null — D-08).
+  let body = appendPriorReviewSources(rawBody, priorCitations);
+  body = insertProgressBlock(body, feedbackResult?.block);
   // --- end RCTX-02/03 splice ---
 
   const today = todayISO();
