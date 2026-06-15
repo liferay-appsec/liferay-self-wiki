@@ -345,3 +345,82 @@ test('buildProgressFeedbackBlock returns { cycleName, block } when a cycle is fo
     process.env.PATH = savedPath;
   }
 });
+
+// ─── heading parameterization (Plan 10-01) ───────────────────────────────────
+
+test('renderProgressBlock with custom heading uses that heading as first line', () => {
+  const block = renderProgressBlock(
+    [{ id: 'FB-1', text: 'Be more concise in PR descriptions' }],
+    new Map(),
+    '## Progress on prior-cycle feedback',
+  );
+  assert.ok(
+    block.startsWith('## Progress on prior-cycle feedback'),
+    `got: ${block.slice(0, 60)}`,
+  );
+});
+
+test('renderProgressBlock with custom heading still renders verbatim FB-N lines (byte-identical)', () => {
+  const block = renderProgressBlock(
+    [{ id: 'FB-1', text: 'Be more concise in PR descriptions' }],
+    new Map(),
+    '## Progress on prior-cycle feedback',
+  );
+  assert.ok(block.includes('- **FB-1**: Be more concise in PR descriptions'));
+});
+
+test('renderProgressBlock default heading unchanged — no third arg → ## Progress vs. review feedback', () => {
+  const block = renderProgressBlock(
+    [{ id: 'FB-1', text: 'test item' }],
+    new Map(),
+  );
+  assert.ok(block.startsWith('## Progress vs. review feedback'));
+  assert.ok(!block.startsWith('## Progress on prior-cycle feedback'));
+});
+
+test('buildProgressFeedbackBlock with blockHeading option uses that heading in the block', async () => {
+  // 2029-06-15 is in 2029-cycle2; write 2029-cycle1 manager file.
+  writeFileSync(
+    join(vault, 'Reviews', '2029-cycle1-manager.md'),
+    managerReviewBody('2029-cycle1', [{ id: 'FB-1', text: 'Custom heading test item' }]),
+    'utf8',
+  );
+  const savedPath = process.env.PATH;
+  process.env.PATH = '/nonexistent';
+  try {
+    const result = await buildProgressFeedbackBlock('2029-06-15', DEFAULT_CFG, {
+      corpusLabel: 'cycle',
+      corpusBlock: '',
+      hasEvidence: false,
+      blockHeading: '## Progress on prior-cycle feedback',
+    });
+    assert.ok(result !== null);
+    assert.ok(
+      result.block.startsWith('## Progress on prior-cycle feedback'),
+      `expected custom heading, got: ${result.block.slice(0, 60)}`,
+    );
+    assert.ok(result.block.includes('- **FB-1**: Custom heading test item'));
+  } finally {
+    process.env.PATH = savedPath;
+  }
+});
+
+test('buildProgressFeedbackBlock without blockHeading defaults to ## Progress vs. review feedback', async () => {
+  // Reuse 2028-cycle1 manager file (already written above)
+  const savedPath = process.env.PATH;
+  process.env.PATH = '/nonexistent';
+  try {
+    const result = await buildProgressFeedbackBlock('2028-06-15', DEFAULT_CFG, {
+      corpusLabel: 'cycle',
+      corpusBlock: '',
+      hasEvidence: false,
+    });
+    assert.ok(result !== null);
+    assert.ok(
+      result.block.startsWith('## Progress vs. review feedback'),
+      `expected default heading, got: ${result.block.slice(0, 60)}`,
+    );
+  } finally {
+    process.env.PATH = savedPath;
+  }
+});

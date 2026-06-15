@@ -81,8 +81,8 @@ export async function resolveApplicableFeedbackCycle(periodDateStr, cfg) {
  * @param {Map<string, string>}               assessments Map from FB-N id to assessment prose
  * @returns {string}  Full markdown block starting with BLOCK_HEADING
  */
-export function renderProgressBlock(items, assessments) {
-  const lines = [BLOCK_HEADING, ''];
+export function renderProgressBlock(items, assessments, heading = BLOCK_HEADING) {
+  const lines = [heading, ''];
   for (const { id, text } of items) {
     // Verbatim line — code-rendered from parseFeedbackItems output (RRPT-03).
     lines.push(`- **${id}**: ${text}`);
@@ -163,7 +163,7 @@ export async function synthesizeFeedbackAssessments({ items, corpusLabel, corpus
  *        the model call is skipped and every item gets the deterministic fallback (WR-02).
  * @returns {Promise<{ cycleName: string, block: string } | null>}
  */
-export async function buildProgressFeedbackBlock(periodDateStr, cfg, { corpusLabel, corpusBlock, hasEvidence = true }) {
+export async function buildProgressFeedbackBlock(periodDateStr, cfg, { corpusLabel, corpusBlock, hasEvidence = true, blockHeading = BLOCK_HEADING }) {
   const feedbackCycle = await resolveApplicableFeedbackCycle(periodDateStr, cfg);
   if (!feedbackCycle) return null; // RRPT-04: caller omits the block
   // No evidence in the period → skip the claude -p round-trip and render the
@@ -177,6 +177,6 @@ export async function buildProgressFeedbackBlock(periodDateStr, cfg, { corpusLab
     : new Map();
   return {
     cycleName: feedbackCycle.cycleName,
-    block: renderProgressBlock(feedbackCycle.items, assessments),
+    block: renderProgressBlock(feedbackCycle.items, assessments, blockHeading),
   };
 }
