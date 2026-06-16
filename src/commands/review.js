@@ -73,7 +73,10 @@ export function reviewCommand() {
       let window;
       try {
         const cfg = await readVaultConfig();
-        window = resolveReviewWindow({ cycle: opts.cycle, lastCycle: opts.lastCycle, today: todayISO(), vaultConfig: cfg });
+        // Same default as `review record`: report the most-recently-completed
+        // cycle, not the lastReviewedAt implicit-since window — so `record` and
+        // `status` always agree on which cycle a bare invocation targets.
+        window = resolveReviewWindow({ cycle: opts.cycle, lastCycle: opts.lastCycle, today: todayISO(), vaultConfig: cfg, preferCompletedCycle: true });
       } catch (err) {
         if (err && typeof err.message === 'string' && err.message.startsWith('invalid --cycle value')) {
           process.stderr.write(`error: ${err.message}\n`);

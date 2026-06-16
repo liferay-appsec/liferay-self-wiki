@@ -89,6 +89,21 @@ test('resolveReviewWindow: vault lastReviewedAt acts as implicit --since', () =>
   assert.match(r.partialNote, /Custom window 2026-03-15.*since last review/);
 });
 
+test('resolveReviewWindow: preferCompletedCycle skips lastReviewedAt and targets the completed cycle (review-record default)', () => {
+  // lastReviewedAt is in the review-month (May), which lands in cycle2's date range
+  // even though cycle1 was the cycle reviewed. review record must file under cycle1.
+  const cfg = {
+    review: { cycleEndMonths: [5, 9, 12], lastReviewedAt: '2026-05-11', lastReviewedCycle: '2026-cycle1' },
+  };
+  // Without the flag (self-review/report) the implicit-since path still yields cycle2 — unchanged.
+  assert.equal(resolveReviewWindow({ today: '2026-06-15', vaultConfig: cfg }).cycleName, '2026-cycle2');
+  // With the flag (review record) it falls through to the most-recently-completed cycle.
+  const r = resolveReviewWindow({ today: '2026-06-15', vaultConfig: cfg, preferCompletedCycle: true });
+  assert.equal(r.cycleName, '2026-cycle1');
+  assert.equal(r.end, '2026-04-30');
+  assert.equal(r.partialNote, null);
+});
+
 test('resolveReviewWindow: D-01 default — bare invocation picks most recently ended cycle', () => {
   const r = resolveReviewWindow({ today: '2026-06-15', vaultConfig: defaultVaultCfg });
   assert.equal(r.cycleName, '2026-cycle1');

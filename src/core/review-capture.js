@@ -63,6 +63,10 @@ async function resolveWindow(opts) {
     lastCycle: opts.lastCycle,
     today: todayISO(),
     vaultConfig: cfg,
+    // Recording artifacts for a just-completed review targets the most-recently-
+    // completed cycle, not the lastReviewedAt implicit-since window (which resolves
+    // one cycle late because reviews are written in the following cycle's months).
+    preferCompletedCycle: true,
   });
 }
 
@@ -149,6 +153,7 @@ export async function recordManagerReview(opts) {
     process.stderr.write('warn: `claude` CLI not found on PATH; skipping feedback extraction. Edit the ## Feedback Items section manually (re-run with --force after installing claude to auto-extract).\n');
     feedbackSection = buildFeedbackSection([], { reason: 'no-claude' });
   } else {
+    process.stderr.write(`extracting feedback items from the manager review for ${window.cycleName} (running claude -p; this can take up to a minute)…\n`);
     const points = await extractFeedbackPoints(text);
     feedbackSection = buildFeedbackSection(points, { reason: 'extracted' });
   }

@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, chmodSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { spawnSync } from 'child_process';
@@ -56,6 +56,18 @@ function fixture(name, body) {
   return p;
 }
 
+// Stub `claude` on PATH: the script ignores its args/stdin and prints a fixed
+// body to stdout, exiting 0. It serves BOTH `claude --version` (hasClaudeCli
+// only checks exit code) and `claude -p` (claudeHeadless reads stdout). Returns
+// the bin dir to prepend to a child env's PATH.
+function withStubbedClaude(stdoutBody) {
+  const binDir = mkdtempSync(join(tmpdir(), 'self-wiki-claude-stub-'));
+  const stub = join(binDir, 'claude');
+  writeFileSync(stub, `#!/bin/sh\ncat <<'CLAUDE_EOF'\n${stdoutBody}\nCLAUDE_EOF\n`, 'utf8');
+  chmodSync(stub, 0o755);
+  return binDir;
+}
+
 // RCAP-01 — --self stores Reviews/<cycle>-final.md
 test('review record --self writes Reviews/<cycle>-final.md (RCAP-01)', () => {
   const f = fixture('final.txt', 'My final submitted self-review body.');
@@ -89,6 +101,34 @@ test('review record --manager writes Reviews/<cycle>-manager.md with a Feedback 
   assert.match(body, /Be more proactive in design reviews\./);  // verbatim text stored
   assert.match(body, /## Feedback Items/);
   assert.ok(!/^- \*\*FB-\d+\*\*:/m.test(body));       // no actual FB items in empty stub when claude absent
+});
+
+// Extraction path (claude present): the command prints a progress notice before
+// the model call (so a multi-second `claude -p` is not mistaken for a hang) and
+// writes the AI-extracted FB-N items. Hermetic via a stubbed claude on PATH.
+test('review record --manager prints a progress notice and writes extracted FB items when claude is present', () => {
+  const binDir = withStubbedClaude('- Be more proactive in design reviews\n- Deepen OSGi knowledge');
+  try {
+    const f = fixture('mgr-extract.txt', 'Manager prose to extract from.');
+    const r = runReview(
+      ['record', '--manager', '--cycle', '2027-cycle1', f],
+      {
+        env: {
+          ...process.env,
+          PATH: binDir + ':' + process.env.PATH,
+          XDG_DATA_HOME: process.env.XDG_DATA_HOME,
+          XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+        },
+      },
+    );
+    assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+    assert.match(r.stderr, /extracting feedback items.*2027-cycle1.*claude -p/);  // progress notice (anti-hang UX)
+    const body = readFileSync(join(vault, 'Reviews', '2027-cycle1-manager.md'), 'utf8');
+    assert.match(body, /- \*\*FB-1\*\*: Be more proactive in design reviews/);    // extracted, verbatim-faithful
+    assert.match(body, /- \*\*FB-2\*\*: Deepen OSGi knowledge/);
+  } finally {
+    rmSync(binDir, { recursive: true, force: true });
+  }
 });
 
 // RCAP-04 / D-02 / D-03 — refuse-without-force protects each file; sibling untouched

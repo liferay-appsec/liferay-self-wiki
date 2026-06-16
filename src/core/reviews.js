@@ -76,8 +76,16 @@ export function resolveReviewWindow(args) {
     return { cycleName: enc.name, start: args.since, end: enc.end, partialNote };
   }
 
+  // `lastReviewedAt` acts as an implicit `--since` for self-review/report (resume
+  // from where the last review left off). But `review record` must NOT use it:
+  // a review is written in the review-month, which falls in the NEXT cycle's date
+  // range (e.g. cycle1 ends Apr 30 but is reviewed in May, which is cycle2). So
+  // findEnclosingCycle(lastReviewedAt) returns the cycle AFTER the one reviewed,
+  // and `review record` would file the just-completed cycle's artifacts one cycle
+  // late. With `preferCompletedCycle`, skip the incremental window and fall through
+  // to the most-recently-completed-cycle default below.
   const last = args.vaultConfig?.review?.lastReviewedAt;
-  if (last) {
+  if (last && !args.preferCompletedCycle) {
     const enc = findEnclosingCycle(last, cem);
     const partialNote = last !== enc.start
       ? `Custom window ${last} → ${enc.end} (since last review); report covers a partial slice of ${enc.name}.`
